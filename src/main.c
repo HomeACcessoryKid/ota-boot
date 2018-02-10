@@ -16,7 +16,7 @@
 
 #include <ota.h> //stored at ../common
 
-#define MYVERSION "v1.2.4"
+#define MYVERSION "1.2.6"
 #define HOLDOFF_MULTIPLIER 3    //more like 20  -> 20s,400 (~6min),8000 (~2h),160000 (~2days)
 #define HOLDOFF_MAX 50          //more like 604800 (1 week)
 #define CERTFILE "certificates.sector"
@@ -32,7 +32,7 @@
 void ota_task(void *arg) {
     int holdoff_time=1; //32bit, in seconds
     char* main_url = "HomeACcessoryKid/FOTAtest";
-    char* main_version = "v1.0.4";
+    char* main_version = "1.0.4";
     char* main_file = "eagle.flash.bin";
     char*  new_version=NULL;
     char*  ota_version=NULL;
@@ -104,6 +104,6 @@ void user_init(void) {
 //    uart_set_baud(0, 74880);
     uart_set_baud(0, 115200);
 
-    wifi_config_init("OTA-boot", NULL, on_wifi_ready);
+    wifi_config_init("OTA", NULL, on_wifi_ready); //need to expand it with setting repo-details
     printf("user-init-done\n");
 }
