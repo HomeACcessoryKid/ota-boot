@@ -8,6 +8,7 @@
 #include <wolfssl/ssl.h>
 #include <wolfssl/wolfcrypt/types.h>	    // needed by wolfSSL_check_domain_name()
 #include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/dsa.h>
 #include <ota.h>
 
 #include <sntp.h>
@@ -75,6 +76,25 @@ void  ota_init() {
     ota_set_validate(1); //by default validate (although the first thing we do is switch it off...)
 }
 
+int ota_get_privkey() {
+    printf("ota_get_privkey\n");
+    return 0;
+}
+
+int ota_get_pubkey(char * pubkey) { //get the dsa key from the active_cert_sector
+    printf("ota_get_pubkey\n");
+    return 0;
+}
+
+int ota_verify_pubkey(char* pubkey) { //check if public and private key are a pair
+    printf("ota_verify_pubkey\n");
+    return 0;
+}
+
+void ota_sign(int start_sector, int num_sectors) {
+    printf("ota_sign\n");
+}
+
 int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-release or older,-1)
     printf("ota_compare\n");
     char* dot;
@@ -82,15 +102,11 @@ int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-re
     char news[MAXVERSIONLEN],olds[MAXVERSIONLEN];
     char * new=news;
     char * old=olds;
-    int  allow_pre_release=0;
-        
+    
     if (strcmp(newv,oldv)) { //https://semver.org/#spec-item-11
-        if (strchr(newv,'-')) {
-            if (allow_pre_release) {
-                // more complicated parsing ahead...
-            }
-            return -1;
-        }
+        if (strchr(newv,'-')) return -1; //we cannot handle pre-releases in the 'latest version' concept
+        //they should not occur since they will block finding a valid production version.
+        //mark them properly as pre-release in github so they do now show up in releases/latest
         strncpy(new,newv,MAXVERSIONLEN-1);
         strncpy(old,oldv,MAXVERSIONLEN-1);
         if ((dot=strchr(new,'.'))) {dot[0]=0; valuen=atoi(new); new=dot+1;}
@@ -306,7 +322,14 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
             if (ret > 0) {
                 recv_buf[ret]=0; //error checking, e.g. not result=206
                 printf("%s\n",recv_buf);
+                location=strstr(recv_buf,"HTTP/1.1 ");
+                strchr(location,' ')[0]=0;
+                location+=9; //flush "HTTP/1.1 "
+                slash=atoi(location);
+                printf("HTTP returns %d\n",slash);
+                if (slash!=206) return -1;
 
+                location[strlen(location)]=' '; //for further headers
                 location=strstr(recv_buf,"Location: ");
                 strchr(location,'\r')[0]=0;
                 location+=18; //flush Location: https://
@@ -424,7 +447,7 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
 
 int   ota_get_hash(char * url, char * version, char * name, signature_t signature) {
     printf("ota_get_hash\n");
-    return 0;
+    return -1;
 }
 
 int   ota_verify_hash(int sector,char * hash, int filesize) {

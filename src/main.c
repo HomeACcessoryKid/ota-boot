@@ -42,10 +42,13 @@ void ota_task(void *arg) {
     int backup_cert_sector=0xF5000;
     int file_size; //32bit
     int have_private_key=0;
-
+    char* pubkey=NULL;
     ota_init();
-
-    if (ota_have_private_key) { //move this bit to ota_init
+    
+    
+    
+    //vTaskDelete(NULL);
+    if (!ota_get_privkey()) { //move this bit to ota_init
         have_private_key=1;
         active_cert_sector=0xF6000; //force it there
     }

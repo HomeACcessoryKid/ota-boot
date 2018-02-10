@@ -28,9 +28,17 @@ typedef struct {
 
 typedef unsigned char byte;
 
-void ota_init();
+void  ota_init();
 
-int ota_compare(char* newv, char* oldv);
+int   ota_get_privkey();
+
+int   ota_get_pubkey(char * pubkey); //get the dsa key from the active_cert_sector
+
+int   ota_verify_pubkey(char* pubkey); //check if public and private key are a pair
+
+void  ota_sign(int start_sector, int num_sectors);
+
+int   ota_compare(char* newv, char* oldv);
 
 int   ota_load_main_app(char * url, char * version, char * name);
 
