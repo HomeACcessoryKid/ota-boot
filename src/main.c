@@ -41,8 +41,14 @@ void ota_task(void *arg) {
     int active_cert_sector=0xF6000;
     int backup_cert_sector=0xF5000;
     int file_size; //32bit
+    int have_private_key=0;
 
     ota_init();
+
+    if (ota_have_private_key) { //move this bit to ota_init
+        have_private_key=1;
+        active_cert_sector=0xF6000; //force it there
+    }
 
     if ( !ota_load_main_app(main_url, main_version, main_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)
@@ -53,12 +59,21 @@ void ota_task(void *arg) {
             
             //do we still have a valid internet connexion? dns resolve github... should not be private IP
             
-            ota_set_validate(0); //should work even with faked server
+            ota_set_validate(0); //should work even without certificates
             if ( ota_version) free( ota_version);
             if ( new_version) free( new_version);
             if (self_version) free(self_version);
             ota_version=ota_get_version(OTAURL);
-            ota_get_hash(OTAURL, ota_version, CERTFILE, signature);
+            if (ota_get_hash(OTAURL, ota_version, CERTFILE, signature)) { //no cert.sig exists yet on server
+                if (have_private_key) {
+                    ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
+                    ota_get_pubkey(pubkey);
+                    if (ota_verify_pubkey(pubkey)) vTaskDelete(NULL); //something is horribly wrong
+                    ota_sign(active_cert_sector,1); //reports to console
+                } else {
+                    continue; //loop again and try later
+                }
+            }
             if (ota_verify_hash(active_cert_sector,signature.hash,SECTORSIZE)) { //seems we need to download certificates
                 ota_get_file(OTAURL,ota_version,CERTFILE,backup_cert_sector);
                 if (ota_verify_hash(backup_cert_sector,signature.hash,SECTORSIZE)|| ota_verify_signature(signature)) {
