@@ -21,8 +21,8 @@
 typedef unsigned char byte;
 
 typedef struct {
-    byte hash[20]; //SHA-1
-    byte sign[40]; //DSA r+s
+    byte hash[32]; //SHA-256
+    byte sign[64]; //DSA r+s
 } signature_t;
 
 void  ota_init();
@@ -47,7 +47,7 @@ int   ota_get_file(char * url, char * version, char * name, int sector); //numbe
 
 int   ota_get_hash(char * url, char * version, char * name, signature_t signature);
 
-int   ota_verify_hash(int sector,char * hash, int filesize);
+int   ota_verify_hash(int sector, byte* hash, int filesize);
     
 int   ota_verify_signature(signature_t signature);
 

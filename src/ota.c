@@ -9,6 +9,7 @@
 #include <wolfssl/wolfcrypt/types.h>	    // needed by wolfSSL_check_domain_name()
 #include <wolfssl/wolfcrypt/logging.h>
 #include <wolfssl/wolfcrypt/dsa.h>
+#include <wolfssl/wolfcrypt/sha.h>
 #include <ota.h>
 
 #include <sntp.h>
@@ -83,7 +84,8 @@ int ota_get_privkey() {
     
     byte buffer[DSAKEYLENGTHMAX];
     int ret;
-    unsigned int idx=0;
+    unsigned int idx;
+    int i,j;
     
     if (!spiflash_read(0xF5000, (byte *)buffer, 4)) {
         printf("error reading flash\n");    return -1;
@@ -95,8 +97,56 @@ int ota_get_privkey() {
     if (!spiflash_read(0xF5000, (byte *)buffer, length)) {
         printf("error reading flash\n");    return -1;
     }
-    wc_InitDsaKey(&prvkey);
+    wc_InitDsaKey(&prvkey); idx=0;
     ret=DsaPrivateKeyDecode(buffer,&idx,&prvkey,length);
+    printf("ret: %d\n",ret);
+    
+    
+    //some basic testing with DSA
+    memset(buffer+length-31,0xff,31); //wipe out priv key
+    if (buffer[length-33]==0x00) buffer[length-32]=0xff;
+    if (buffer[length-33]==0x20) buffer[length-32]=0x7f;
+    printf("tail:"); for (j=length-35;j<length;j++) printf(" %02x",buffer[j]); printf("\n");
+    
+    wc_InitDsaKey(&pubkey); idx=0;
+    ret=DsaPrivateKeyDecode(buffer,&idx,&pubkey,length);
+    printf("ret: %d\n",ret);
+    pubkey.type=DSA_PUBLIC;
+    
+    WC_RNG rng;
+    /*byte hash[SHA_DIGEST_SIZE];
+    printf("DIGSIZE: %d",SHA_DIGEST_SIZE);
+
+    for (j=0;j<20;j++){
+        wc_RNG_GenerateBlock(&rng, hash, SHA_DIGEST_SIZE);
+        printf("\nhash: ");
+        for (i=0;i<20;i++) printf("%02x ",hash[i]);
+    }*/
+    byte hash[]=    {32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};
+    byte hashcopy[]={32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};
+    int answer;
+    byte signature[64];
+
+    printf("copy: ");
+    for (i=0;i<32;i++) printf("%02x ",hashcopy[i]); printf("\n");
+
+    
+    wc_DsaSign(hashcopy, signature, &prvkey, &rng);
+    
+    printf("copy: "); for (i=0;i<32;i++) printf("%02x ",hashcopy[i]); printf("\n");
+    printf("hash: "); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
+    
+    wc_DsaVerify(hash, signature, &pubkey, &answer);
+    
+    printf("answer: %d\nhash: ",answer); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
+    printf("sign: "); for (i=0;i<64;i++) printf("%02x ",signature[i]); printf("\n");
+    hash[1]=20;
+    
+    wc_DsaVerify(hash, signature, &pubkey, &answer);
+    
+    printf("answer: %d\nhash: ",answer); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
+    printf("sign: "); for (i=0;i<64;i++) printf("%02x ",signature[i]); printf("\n");
+    
     return ret;
 }
 
@@ -469,7 +519,7 @@ int   ota_get_hash(char * url, char * version, char * name, signature_t signatur
     return -1;
 }
 
-int   ota_verify_hash(int sector,char * hash, int filesize) {
+int   ota_verify_hash(int sector, byte* hash, int filesize) {
     printf("ota_verify_hash\n");
     return 0;
 }
