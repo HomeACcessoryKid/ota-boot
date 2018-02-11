@@ -45,13 +45,12 @@ void ota_task(void *arg) {
     char* pubkey=NULL;
     ota_init();
     
-    
-    
-    //vTaskDelete(NULL);
-    if (!ota_get_privkey()) { //move this bit to ota_init
+    if (!ota_get_privkey()) { //move this bit to ota_init?
+        printf("have private key\n");
         have_private_key=1;
         active_cert_sector=0xF6000; //force it there
     }
+    vTaskDelete(NULL); //partial testing
 
     if ( !ota_load_main_app(main_url, main_version, main_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)

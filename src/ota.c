@@ -17,6 +17,8 @@
 
 static int validate;
 
+DsaKey prvkey;
+DsaKey pubkey;
 
 WOLFSSL_CTX* ctx;
 
@@ -55,7 +57,7 @@ void  ota_init() {
         //error
     }
     //set active_cert_sector
-    int active_cert_sector=0xF6000;
+    int active_cert_sector=0xF6000; //tmp code
     ret=0;
     byte abyte[1];
     do {
@@ -78,7 +80,24 @@ void  ota_init() {
 
 int ota_get_privkey() {
     printf("ota_get_privkey\n");
-    return 0;
+    
+    byte buffer[DSAKEYLENGTHMAX];
+    int ret;
+    unsigned int idx=0;
+    
+    if (!spiflash_read(0xF5000, (byte *)buffer, 4)) {
+        printf("error reading flash\n");    return -1;
+    }
+    if (buffer[0]!=0x30 || buffer[1]!=0x82) return -2; //not a valid keyformat
+    int length=256*buffer[2]+buffer[3]+4; //includes this header
+    if (length>DSAKEYLENGTHMAX)             return -3; // too long to be valid 3072bit key
+    
+    if (!spiflash_read(0xF5000, (byte *)buffer, length)) {
+        printf("error reading flash\n");    return -1;
+    }
+    wc_InitDsaKey(&prvkey);
+    ret=DsaPrivateKeyDecode(buffer,&idx,&prvkey,length);
+    return ret;
 }
 
 int ota_get_pubkey(char * pubkey) { //get the dsa key from the active_cert_sector

@@ -15,18 +15,15 @@
 #define SNTP_SERVERS 	"0.pool.ntp.org", "1.pool.ntp.org", \
 						"2.pool.ntp.org", "3.pool.ntp.org"
 
-/*struct version_t {
-    int major;
-    int minor;
-    int patch;
-}
-*/
-typedef struct {
-    char hash[20];
-    char sign[20];
-} signature_t;
+#define DSAKEYLENGTHMAX 1244 //based on a 3072 bit key with all numbers with initial bit 1
+#define DSAKEYSTARTBYTE 4096-DSAKEYLENGTHMAX
 
 typedef unsigned char byte;
+
+typedef struct {
+    byte hash[20]; //SHA-1
+    byte sign[40]; //DSA r+s
+} signature_t;
 
 void  ota_init();
 
