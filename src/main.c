@@ -38,8 +38,8 @@ void ota_task(void *arg) {
     char*  ota_version=NULL;
     char* self_version=NULL;
     signature_t signature;
-    int active_cert_sector=0xF6000;
-    int backup_cert_sector=0xF5000;
+    extern int active_cert_sector;
+    extern int backup_cert_sector;
     int file_size; //32bit
     int have_private_key=0;
     char* pubkey=NULL;

@@ -31,7 +31,7 @@ void MyLoggingCallback(const int logLevel, const char* const logMessage) {
 
 void  ota_init() {
     printf("ota_init\n");
-    
+    //time support
     time_t ts;
     char *servers[] = {SNTP_SERVERS};
 	sntp_set_update_delay(5*60000); //SNTP will request an update each 5 minutes
@@ -57,8 +57,11 @@ void  ota_init() {
     if (!ctx) {
         //error
     }
+    extern int active_cert_sector;
+    extern int backup_cert_sector;
     //set active_cert_sector
-    int active_cert_sector=0xF6000; //tmp code
+    active_cert_sector=0xF6000; //tmp code
+    backup_cert_sector=0xF5000; //tmp code
     ret=0;
     byte abyte[1];
     do {

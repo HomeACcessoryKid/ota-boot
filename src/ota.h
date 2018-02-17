@@ -25,6 +25,9 @@ typedef struct {
     byte sign[64]; //DSA r+s
 } signature_t;
 
+int active_cert_sector;
+int backup_cert_sector;
+
 void  ota_init();
 
 int   ota_get_privkey();
