@@ -15,14 +15,13 @@
 #define SNTP_SERVERS 	"0.pool.ntp.org", "1.pool.ntp.org", \
 						"2.pool.ntp.org", "3.pool.ntp.org"
 
-#define DSAKEYLENGTHMAX 1244 //based on a 3072 bit key with all numbers with initial bit 1
-#define DSAKEYSTARTBYTE 4096-DSAKEYLENGTHMAX
+#define ECDSAKEYLENGTHMAX 128 //to be verified better, example is 120 bytes secP384r1
 
 typedef unsigned char byte;
 
 typedef struct {
     byte hash[32]; //SHA-256
-    byte sign[64]; //DSA r+s
+    byte sign[104]; //ECDSA r+s in ASN1 format secP384r1
 } signature_t;
 
 int active_cert_sector;

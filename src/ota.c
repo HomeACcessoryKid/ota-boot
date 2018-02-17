@@ -8,8 +8,8 @@
 #include <wolfssl/ssl.h>
 #include <wolfssl/wolfcrypt/types.h>	    // needed by wolfSSL_check_domain_name()
 #include <wolfssl/wolfcrypt/logging.h>
-#include <wolfssl/wolfcrypt/dsa.h>
-#include <wolfssl/wolfcrypt/sha.h>
+#include <wolfssl/wolfcrypt/sha512.h>
+#include <wolfssl/wolfcrypt/ecc.h>
 #include <ota.h>
 
 #include <sntp.h>
@@ -18,8 +18,8 @@
 
 static int validate;
 
-DsaKey prvkey;
-DsaKey pubkey;
+ecc_key prvecckey;
+ecc_key pubecckey;
 
 WOLFSSL_CTX* ctx;
 
@@ -85,70 +85,71 @@ void  ota_init() {
 int ota_get_privkey() {
     printf("ota_get_privkey\n");
     
-    byte buffer[DSAKEYLENGTHMAX];
+    byte buffer[ECDSAKEYLENGTHMAX];
     int ret;
     unsigned int idx;
-    int i,j;
+    int i,length;
     
-    if (!spiflash_read(0xF5000, (byte *)buffer, 4)) {
+    //load private key as produced by openssl
+    if (!spiflash_read(0xF3000, (byte *)buffer, 24)) {
         printf("error reading flash\n");    return -1;
     }
-    if (buffer[0]!=0x30 || buffer[1]!=0x82) return -2; //not a valid keyformat
-    int length=256*buffer[2]+buffer[3]+4; //includes this header
-    if (length>DSAKEYLENGTHMAX)             return -3; // too long to be valid 3072bit key
+    if (buffer[0]!=0x30 || buffer[1]!=0x81) return -2; //not a valid keyformat
+    if (buffer[3]!=0x02 || buffer[4]!=0x01 || buffer[5]!=0x01) return -2; //not a valid keyformat
+    if (buffer[6]!=0x04) return -2; //not a valid keyformat
+    idx=7;
+    length=buffer[idx++]; //bitstring start
     
-    if (!spiflash_read(0xF5000, (byte *)buffer, length)) {
+    if (!spiflash_read(0xF3000+idx, (byte *)buffer, length)) {
         printf("error reading flash\n");    return -1;
     }
-    wc_InitDsaKey(&prvkey); idx=0;
-    ret=DsaPrivateKeyDecode(buffer,&idx,&prvkey,length);
-    printf("ret: %d\n",ret);
+    for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx]);
+    wc_ecc_init(&prvecckey);
+    ret=wc_ecc_import_private_key_ex(buffer, length, NULL, 0, &prvecckey,ECC_SECP384R1);
+    printf("\nret: %d\n",ret);
     
+    //load public key as produced by openssl
+    if (!spiflash_read(0xF4000, (byte *)buffer, 24)) {
+        printf("error reading flash\n");    return -1;
+    }
+    if (buffer[0]!=0x30 || buffer[1]>0x7E) return -2; //not a valid keyformat
+    if (buffer[2]!=0x30) return -2; //not a valid keyformat
+    idx=buffer[3]+4;
+    if (buffer[idx++]!=0x03) return -2; //not a valid keyformat
+    length=buffer[idx++]; //bitstring start
+    if (buffer[idx]==0) {idx++;length--;}
     
-    //some basic testing with DSA
-    memset(buffer+length-31,0xff,31); //wipe out priv key
-    if (buffer[length-33]==0x00) buffer[length-32]=0xff;
-    if (buffer[length-33]==0x20) buffer[length-32]=0x7f;
-    printf("tail:"); for (j=length-35;j<length;j++) printf(" %02x",buffer[j]); printf("\n");
-    
-    wc_InitDsaKey(&pubkey); idx=0;
-    ret=DsaPrivateKeyDecode(buffer,&idx,&pubkey,length);
-    printf("ret: %d\n",ret);
-    pubkey.type=DSA_PUBLIC;
+    if (!spiflash_read(0xF4000+idx, (byte *)buffer, length)) {
+        printf("error reading flash\n");    return -1;
+    }
+    for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx]);
+    wc_ecc_init(&pubecckey);
+    ret=wc_ecc_import_x963_ex(buffer,length,&pubecckey,ECC_SECP384R1);
+    printf("\nret: %d\n",ret);
     
     WC_RNG rng;
-    /*byte hash[SHA_DIGEST_SIZE];
-    printf("DIGSIZE: %d",SHA_DIGEST_SIZE);
+    byte hash[WC_SHA384_DIGEST_SIZE];
+    printf("DIGSIZE: %d\n",WC_SHA384_DIGEST_SIZE);
 
-    for (j=0;j<20;j++){
-        wc_RNG_GenerateBlock(&rng, hash, SHA_DIGEST_SIZE);
-        printf("\nhash: ");
-        for (i=0;i<20;i++) printf("%02x ",hash[i]);
-    }*/
-    byte hash[]=    {32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};
-    byte hashcopy[]={32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};
+    wc_RNG_GenerateBlock(&rng, hash, WC_SHA384_DIGEST_SIZE);
+    printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\n");
     int answer;
-    byte signature[64];
+    unsigned int siglen=104;
+    byte signature[104];
 
-    printf("copy: ");
-    for (i=0;i<32;i++) printf("%02x ",hashcopy[i]); printf("\n");
-
+    wc_ecc_sign_hash(hash, WC_SHA384_DIGEST_SIZE, signature, &siglen, &rng, &prvecckey);
     
-    wc_DsaSign(hashcopy, signature, &prvkey, &rng);
+    printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\nsiglen: %d\n",siglen);
     
-    printf("copy: "); for (i=0;i<32;i++) printf("%02x ",hashcopy[i]); printf("\n");
-    printf("hash: "); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
+    wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
     
-    wc_DsaVerify(hash, signature, &pubkey, &answer);
-    
-    printf("answer: %d\nhash: ",answer); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
-    printf("sign: "); for (i=0;i<64;i++) printf("%02x ",signature[i]); printf("\n");
+    printf("answer: %d\n",answer);
+    printf("sign: "); for (i=0;i<siglen;i++) printf("%02x ",signature[i]); printf("\n");
     hash[1]=20;
     
-    wc_DsaVerify(hash, signature, &pubkey, &answer);
+    wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
     
-    printf("answer: %d\nhash: ",answer); for (i=0;i<32;i++) printf("%02x ",hash[i]); printf("\n");
-    printf("sign: "); for (i=0;i<64;i++) printf("%02x ",signature[i]); printf("\n");
+    printf("answer: %d\n",answer);
     
     return ret;
 }
