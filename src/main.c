@@ -26,8 +26,6 @@
 //#define SELFURL "HomeACcessoryKid/otaself"
 #define SELFURL "HomeACcessoryKid/FOTAtest"
 #define SELFFILE "otaself.bin"
-#define SECTORSIZE 4096
-#define BOOT0SECTOR 2
 
 void ota_task(void *arg) {
     int holdoff_time=1; //32bit, in seconds
@@ -42,13 +40,22 @@ void ota_task(void *arg) {
     extern int backup_cert_sector;
     int file_size; //32bit
     int have_private_key=0;
-    ota_init();
     
-    if (!ota_get_privkey()) { //move this bit to ota_init?
-        printf("have private key\n");
-        have_private_key=1;
-        active_cert_sector=0xF6000; //force it there
+    ota_init();
+    if (!active_cert_sector) {
+        active_cert_sector=0xF6000;
+        backup_cert_sector=0xF5000;
+        ota_version=ota_get_version(OTAURL);
+        ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
     }
+    printf("active_cert_sector: 0x%05x\n",active_cert_sector);
+    
+    if (!ota_get_privkey()) { //have private key
+        have_private_key=1;
+        printf("have private key\n");
+    }
+    
+    if (ota_verify_pubkey(active_cert_sector)) vTaskDelete(NULL); //something is horribly wrong
 
     if ( !ota_load_main_app(main_url, main_version, main_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)
@@ -64,32 +71,30 @@ void ota_task(void *arg) {
             if ( new_version) free( new_version);
             if (self_version) free(self_version);
             ota_version=ota_get_version(OTAURL);
-            if (ota_get_hash(OTAURL, ota_version, CERTFILE, signature)) { //no certs.sector.sig exists yet on server
+            if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //no certs.sector.sig exists yet on server
                 if (have_private_key) {
-                    ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
-vTaskDelete(NULL); //partial testing
-                    if (ota_verify_pubkey()) vTaskDelete(NULL); //something is horribly wrong
-                    ota_sign(active_cert_sector,1, signature); //reports to console
+                    ota_sign(active_cert_sector,1, &signature); //reports to console
+                    vTaskDelete(NULL); //upload the signature out of band to github and start again
                 } else {
                     continue; //loop again and try later
                 }
             }
             if (ota_verify_hash(active_cert_sector,signature.hash,SECTORSIZE)) { //seems we need to download certificates
                 ota_get_file(OTAURL,ota_version,CERTFILE,backup_cert_sector);
-                if (ota_verify_hash(backup_cert_sector,signature.hash,SECTORSIZE)|| ota_verify_signature(signature)) {
+                if (ota_verify_hash(backup_cert_sector,signature.hash,SECTORSIZE)|| ota_verify_signature(&signature)) {
                     //trouble, so abort
                     break; //leads to boot=0
                 }
                 ota_swap_cert_sector();
             } //certificates are good now
             ota_set_validate(1); //reject faked server
-            if (ota_get_hash(OTAURL, ota_version, CERTFILE, signature)) { //testdownload, if server is fake will trigger
+            if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //testdownload, if server is fake will trigger
                 //report by syslog?  //trouble, so abort
                 break; //leads to boot=0
             }
             if (ota_compare(ota_version,MYVERSION)>0) { //how to get version into code? or codeversion into github
                 self_version=ota_get_version(SELFURL);
-                ota_get_hash(SELFURL, ota_version, SELFFILE, signature);
+                ota_get_hash(SELFURL, ota_version, SELFFILE, &signature);
                 file_size=ota_get_file(SELFURL,self_version,SELFFILE,BOOT0SECTOR);
                 if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
                 if (ota_verify_hash(BOOT0SECTOR,signature.hash,file_size)) continue; //download failed
@@ -97,7 +102,7 @@ vTaskDelete(NULL); //partial testing
             } //ota code is up to date
             new_version=ota_get_version(main_url);
             if (ota_compare(new_version,main_version)>0) { 
-                ota_get_hash(main_url, new_version, main_file, signature);
+                ota_get_hash(main_url, new_version, main_file, &signature);
                 file_size=ota_get_file(main_url,new_version,main_file,BOOT0SECTOR);
                 if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
                 if (ota_verify_hash(BOOT0SECTOR,signature.hash,file_size)) continue; //download failed

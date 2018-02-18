@@ -31,6 +31,7 @@ void MyLoggingCallback(const int logLevel, const char* const logMessage) {
 
 void  ota_init() {
     printf("ota_init\n");
+    
     //time support
     time_t ts;
     char *servers[] = {SNTP_SERVERS};
@@ -43,16 +44,17 @@ void  ota_init() {
     } while (ts<1000000000);
     printf("TIME: %s", ctime(&ts));
 
-    wolfSSL_Init();
-    
+#ifdef DEBUG_WOLFSSL    
     int ret;
     ret = wolfSSL_SetLoggingCb(MyLoggingCallback);
     if (ret != 0) {
         /*failed to set logging callback*/
         printf("error setting debug callback\n");
     }
-
+#endif
     
+    wolfSSL_Init();
+
     ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
     if (!ctx) {
         //error
@@ -60,26 +62,24 @@ void  ota_init() {
     extern int active_cert_sector;
     extern int backup_cert_sector;
     //set active_cert_sector
-    active_cert_sector=0xF6000; //tmp code
-    backup_cert_sector=0xF5000; //tmp code
-    ret=0;
-    byte abyte[1];
-    do {
-        if (!spiflash_read(active_cert_sector+(ret++), (byte *)abyte, sizeof(abyte))) {
-            printf("error reading flash\n");
-            break;
-        }
-    } while (abyte[0]!=0xff); ret--;
-    printf("certs size: %d\n",ret);
-    byte *certs=malloc(ret);
-    spiflash_read(active_cert_sector, (byte *)certs, ret);
-
-    ret=wolfSSL_CTX_load_verify_buffer(ctx, certs, ret, SSL_FILETYPE_PEM);
-    if ( ret != SSL_SUCCESS) {
-        printf("failed, return %d\n", ret);
+    byte fourbyte[4];
+    active_cert_sector=0xF6000;
+    backup_cert_sector=0xF5000;
+    if (!spiflash_read(active_cert_sector, (byte *)fourbyte, 4)) {
+        printf("error reading flash\n");
     }
-    free(certs);
-    ota_set_validate(1); //by default validate (although the first thing we do is switch it off...)
+    if (fourbyte[0]!=0x2d || fourbyte[1]!=0x2d || fourbyte[2]!=0x2d || fourbyte[3]!=0x2d ) {
+        active_cert_sector=0xF5000;
+        backup_cert_sector=0xF6000;
+        if (!spiflash_read(active_cert_sector, (byte *)fourbyte, 4)) {
+            printf("error reading flash\n");
+        }
+        if (fourbyte[0]!=0x2d || fourbyte[1]!=0x2d || fourbyte[2]!=0x2d || fourbyte[3]!=0x2d ) {
+            active_cert_sector=0;
+            backup_cert_sector=0;
+        }
+    }
+    ota_set_validate(0);
 }
 
 int ota_get_privkey() {
@@ -107,65 +107,62 @@ int ota_get_privkey() {
     wc_ecc_init(&prvecckey);
     ret=wc_ecc_import_private_key_ex(buffer, length, NULL, 0, &prvecckey,ECC_SECP384R1);
     printf("\nret: %d\n",ret);
+    
     /*
+    */
+    return ret;
+}
+
+int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector
+    printf("ota_get_pubkey\n");
+    
+    byte buf[ECDSAKEYLENGTHMAX];
+    byte * buffer=buf;
+    int length,ret;
     //load public key as produced by openssl
-    if (!spiflash_read(0xF4000, (byte *)buffer, 24)) {
+    if (!spiflash_read(sector+SECTORSIZE-ECDSAKEYLENGTHMAX, (byte *)buffer, ECDSAKEYLENGTHMAX)) {
         printf("error reading flash\n");    return -1;
     }
+    while (buffer[0]==0xff) buffer++; //search for the begin
     if (buffer[0]!=0x30 || buffer[1]>0x7E) return -2; //not a valid keyformat
     if (buffer[2]!=0x30) return -2; //not a valid keyformat
-    idx=buffer[3]+4;
-    if (buffer[idx++]!=0x03) return -2; //not a valid keyformat
-    length=buffer[idx++]; //bitstring start
-    if (buffer[idx]==0) {idx++;length--;}
+    buffer+=buffer[3]+4;
+    if (buffer[0]!=0x03) return -2; //not a valid keyformat
+    length=buffer[1];
+    buffer+=2; //bitstring start
+    if (buffer[0]==0) {buffer++;length--;}
     
-    if (!spiflash_read(0xF4000+idx, (byte *)buffer, length)) {
-        printf("error reading flash\n");    return -1;
-    }
-    for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx]);
+    int idx; for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx]);
     wc_ecc_init(&pubecckey);
     ret=wc_ecc_import_x963_ex(buffer,length,&pubecckey,ECC_SECP384R1);
     printf("\nret: %d\n",ret);
-    
-    WC_RNG rng;
-    byte hash[WC_SHA384_DIGEST_SIZE];
-    printf("DIGSIZE: %d\n",WC_SHA384_DIGEST_SIZE);
 
-    int i;
+    return 0;
+}
+
+int ota_verify_pubkey(int sector) { //check if public and private key are a pair
+    printf("ota_verify_pubkey\n");
+    
+    int ret;
+    ret=ota_get_pubkey(sector);
+    byte hash[WC_SHA384_DIGEST_SIZE];
+    WC_RNG rng;
     wc_RNG_GenerateBlock(&rng, hash, WC_SHA384_DIGEST_SIZE);
-    printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\n");
+    //int i; printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\n");
+    
     int answer;
     unsigned int siglen=104;
     byte signature[104];
 
     wc_ecc_sign_hash(hash, WC_SHA384_DIGEST_SIZE, signature, &siglen, &rng, &prvecckey);
-    
-    printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\nsiglen: %d\n",siglen);
-    
     wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
     
-    printf("answer: %d\n",answer);
-    printf("sign: "); for (i=0;i<siglen;i++) printf("%02x ",signature[i]); printf("\n");
-    hash[1]=20;
-    
-    wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
-    
-    printf("answer: %d\n",answer);
-    */
-    return ret;
+    printf("key valid: %d\n",answer);
+        
+    return answer-1;
 }
 
-int ota_get_pubkey(char * pubkey) { //get the ecdsa key from the active_cert_sector
-    printf("ota_get_pubkey\n");
-    return 0;
-}
-
-int ota_verify_pubkey(void) { //check if public and private key are a pair
-    printf("ota_verify_pubkey\n");
-    return 0;
-}
-
-void ota_sign(int start_sector, int num_sectors, signature_t signature) {
+void ota_sign(int start_sector, int num_sectors, signature_t* signature) {
     printf("ota_sign\n");
 }
 
@@ -207,7 +204,16 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
     int ret;
     ip_addr_t target_ip;
     struct sockaddr_in sock_addr;
-    static int local_port=LOCAL_PORT_START;
+    static int local_port=0;
+    unsigned char initial_port[4];
+    WC_RNG rng;
+    
+    if (!local_port) {
+        do {
+            wc_RNG_GenerateBlock(&rng, initial_port, 2);
+            local_port=256*initial_port[0]+initial_port[1];
+        } while (local_port<LOCAL_PORT_START);
+    }
 
     do {
         ret = netconn_gethostbyname(host, &target_ip);
@@ -250,13 +256,13 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
     printf(OK);
 //wolfSSL_Debugging_ON();
 
-    //printf("create SSL ......");
+    printf("create SSL ......");
     *ssl = wolfSSL_new(ctx);
     if (!*ssl) {
         printf(FAILED);
         return -2;
     }
-    //printf(OK);
+    printf(OK);
 
     wolfSSL_set_fd(*ssl, *socket);
 
@@ -283,9 +289,27 @@ int   ota_load_main_app(char * url, char * version, char * name) {
 
 void  ota_set_validate(int onoff) {
     printf("ota_set_validate...");
+    int ret=0;
+    byte abyte[1];
+    
     if (onoff) {
         printf("ON\n");
         validate=1;
+        do {
+            if (!spiflash_read(active_cert_sector+(ret++), (byte *)abyte, 1)) {
+                printf("error reading flash\n");
+                break;
+            }
+        } while (abyte[0]!=0xff); ret--;
+        printf("certs size: %d\n",ret);
+        byte *certs=malloc(ret);
+        spiflash_read(active_cert_sector, (byte *)certs, ret);
+
+        ret=wolfSSL_CTX_load_verify_buffer(ctx, certs, ret, SSL_FILETYPE_PEM);
+        if ( ret != SSL_SUCCESS) {
+            printf("fail cert loading, return %d\n", ret);
+        }
+        free(certs);
         wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
     } else {
         printf("OFF\n");
@@ -361,8 +385,8 @@ char* ota_get_version(char * url) {
     return version;
 }
 
-int   ota_get_file(char * url, char * version, char * name, int sector) { //number of bytes
-    printf("ota_get_file\n");
+int   ota_get_file_ex(char * url, char * version, char * name, int sector, signature_t* signature) { //number of bytes
+    printf("ota_get_file_ex\n");
     
     int retc, ret=0, slash;
     WOLFSSL*     ssl;
@@ -376,7 +400,10 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
     int  length=1;
     int  clength;
     int  collected=0;
+    int  writespace=0;
     int  header;
+    
+    if (sector==0 && signature==NULL) return -5; //needs to be either a sector or a signature
     
     strcat(strcat(strcat(strcat(strcat(strcat(strcat(strcat(strcpy(recv_buf, \
         REQUESTHEAD),url),"/releases/download/"),version),"/"),name),REQUESTTAIL),HOST),CRLFCRLF);
@@ -401,8 +428,11 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
                 location+=9; //flush "HTTP/1.1 "
                 slash=atoi(location);
                 printf("HTTP returns %d\n",slash);
-                if (slash!=302) return -1;
-
+                if (slash!=302) {
+                    wolfSSL_free(ssl);
+                    lwip_close(socket);
+                    return -1;
+                }
                 recv_buf[strlen(recv_buf)]=' '; //for further headers
                 location=strstr(recv_buf,"Location: ");
                 strchr(location,'\r')[0]=0;
@@ -483,8 +513,21 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
                         //verify if last bytes are crlfcrlf else slash--
                     } else {
                         recv_bytes += ret;
+                        if (sector) { //write to flash
+                            if (writespace<ret) {
+                                printf("erasing@0x%05x\n", sector+collected);
+                                if (!spiflash_erase_sector(sector+collected)) return -6; //erase error
+                                writespace+=SECTORSIZE;
+                            }
+                            if (!spiflash_write(sector+collected, (byte *)recv_buf, ret)) return -7; //write error
+                        } else { //signature
+                            
+                        }
                         collected+=ret;
-                        for (ret=0;ret<16;ret++) printf("%02x ", recv_buf[ret]); //write to flash
+                        int i;
+                        for (i=0;i<8;i++) printf("%02x ", recv_buf[i]);
+                        printf("... ");
+                        for (i=8;i>0;i--) printf("%02x ", recv_buf[ret-i]);
                         printf("\n");
                     }
                 } else {
@@ -519,9 +562,19 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
     return collected;
 }
 
-int   ota_get_hash(char * url, char * version, char * name, signature_t signature) {
+int   ota_get_file(char * url, char * version, char * name, int sector) { //number of bytes
+    printf("ota_get_file\n");
+    return ota_get_file_ex(url,version,name,sector,NULL);
+}
+int   ota_get_hash(char * url, char * version, char * name, signature_t* signature) {
     printf("ota_get_hash\n");
-    return -1;
+    int ret;
+    char * signame=malloc(strlen(name));
+    strcpy(signame,name);
+    strcat(signame,".sig");
+    ret=ota_get_file_ex(url,version,signame,0,signature);
+    free(signame);
+    return ret;
 }
 
 int   ota_verify_hash(int sector, byte* hash, int filesize) {
@@ -529,7 +582,7 @@ int   ota_verify_hash(int sector, byte* hash, int filesize) {
     return 0;
 }
 
-int   ota_verify_signature(signature_t signature) {
+int   ota_verify_signature(signature_t* signature) {
     printf("ota_verify_signature\n");
     return 0;
 }

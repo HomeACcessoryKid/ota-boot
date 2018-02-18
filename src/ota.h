@@ -1,6 +1,8 @@
 #ifndef __OTA_H__
 #define __OTA_H__
 
+#define SECTORSIZE 4096
+#define BOOT0SECTOR 2
 #define HOST "github.com"
 #define HTTPS_PORT 443
 #define LOCAL_PORT_START 49152
@@ -20,7 +22,7 @@
 typedef unsigned char byte;
 
 typedef struct {
-    byte hash[32]; //SHA-256
+    byte hash[48]; //SHA-384
     byte sign[104]; //ECDSA r+s in ASN1 format secP384r1
 } signature_t;
 
@@ -31,11 +33,11 @@ void  ota_init();
 
 int   ota_get_privkey();
 
-int   ota_get_pubkey(char * pubkey); //get the ecdsa key from the active_cert_sector
+int   ota_get_pubkey(int sector); //get the ecdsa key from the active_cert_sector
 
-int   ota_verify_pubkey(void); //check if public and private key are a pair
+int   ota_verify_pubkey(int sector); //check if public and private key are a pair
 
-void  ota_sign(int start_sector, int num_sectors, signature_t signature);
+void  ota_sign(int start_sector, int num_sectors, signature_t* signature);
 
 int   ota_compare(char* newv, char* oldv);
 
@@ -47,11 +49,11 @@ char* ota_get_version(char * url);
 
 int   ota_get_file(char * url, char * version, char * name, int sector); //number of bytes 
 
-int   ota_get_hash(char * url, char * version, char * name, signature_t signature);
+int   ota_get_hash(char * url, char * version, char * name, signature_t* signature);
 
 int   ota_verify_hash(int sector, byte* hash, int filesize);
     
-int   ota_verify_signature(signature_t signature);
+int   ota_verify_signature(signature_t* signature);
 
 void  ota_swap_cert_sector();
 
