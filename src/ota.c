@@ -91,7 +91,7 @@ int ota_get_privkey() {
     int length;
     
     //load private key as produced by openssl
-    if (!spiflash_read(0xF3000, (byte *)buffer, 24)) {
+    if (!spiflash_read(backup_cert_sector, (byte *)buffer, 24)) {
         printf("error reading flash\n");    return -1;
     }
     if (buffer[0]!=0x30 || buffer[1]!=0x81) return -2; //not a valid keyformat
@@ -100,14 +100,14 @@ int ota_get_privkey() {
     idx=7;
     length=buffer[idx++]; //bitstring start
     
-    if (!spiflash_read(0xF3000+idx, (byte *)buffer, length)) {
+    if (!spiflash_read(backup_cert_sector+idx, (byte *)buffer, length)) {
         printf("error reading flash\n");    return -1;
     }
     for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx]);
     wc_ecc_init(&prvecckey);
     ret=wc_ecc_import_private_key_ex(buffer, length, NULL, 0, &prvecckey,ECC_SECP384R1);
     printf("\nret: %d\n",ret);
-    
+    /*
     //load public key as produced by openssl
     if (!spiflash_read(0xF4000, (byte *)buffer, 24)) {
         printf("error reading flash\n");    return -1;
@@ -151,21 +151,21 @@ int ota_get_privkey() {
     wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
     
     printf("answer: %d\n",answer);
-    
+    */
     return ret;
 }
 
-int ota_get_pubkey(char * pubkey) { //get the dsa key from the active_cert_sector
+int ota_get_pubkey(char * pubkey) { //get the ecdsa key from the active_cert_sector
     printf("ota_get_pubkey\n");
     return 0;
 }
 
-int ota_verify_pubkey(char* pubkey) { //check if public and private key are a pair
+int ota_verify_pubkey(void) { //check if public and private key are a pair
     printf("ota_verify_pubkey\n");
     return 0;
 }
 
-void ota_sign(int start_sector, int num_sectors) {
+void ota_sign(int start_sector, int num_sectors, signature_t signature) {
     printf("ota_sign\n");
 }
 

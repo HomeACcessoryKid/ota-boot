@@ -31,11 +31,11 @@ void  ota_init();
 
 int   ota_get_privkey();
 
-int   ota_get_pubkey(char * pubkey); //get the dsa key from the active_cert_sector
+int   ota_get_pubkey(char * pubkey); //get the ecdsa key from the active_cert_sector
 
-int   ota_verify_pubkey(char* pubkey); //check if public and private key are a pair
+int   ota_verify_pubkey(void); //check if public and private key are a pair
 
-void  ota_sign(int start_sector, int num_sectors);
+void  ota_sign(int start_sector, int num_sectors, signature_t signature);
 
 int   ota_compare(char* newv, char* oldv);
 

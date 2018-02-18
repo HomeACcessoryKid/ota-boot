@@ -19,9 +19,9 @@
 #define MYVERSION "1.2.6"
 #define HOLDOFF_MULTIPLIER 3    //more like 20  -> 20s,400 (~6min),8000 (~2h),160000 (~2days)
 #define HOLDOFF_MAX 50          //more like 604800 (1 week)
-#define CERTFILE "certificates.sector"
-//#define OTAURL  "HomeACcessoryKid/ota"
-#define OTAURL  "HomeACcessoryKid/FOTAtest"
+#define CERTFILE "certs.sector"
+#define OTAURL  "HomeACcessoryKid/ota"
+//#define OTAURL  "HomeACcessoryKid/FOTAtest"
 #define OTAFILE "ota.bin"
 //#define SELFURL "HomeACcessoryKid/otaself"
 #define SELFURL "HomeACcessoryKid/FOTAtest"
@@ -42,7 +42,6 @@ void ota_task(void *arg) {
     extern int backup_cert_sector;
     int file_size; //32bit
     int have_private_key=0;
-    char* pubkey=NULL;
     ota_init();
     
     if (!ota_get_privkey()) { //move this bit to ota_init?
@@ -50,7 +49,6 @@ void ota_task(void *arg) {
         have_private_key=1;
         active_cert_sector=0xF6000; //force it there
     }
-    vTaskDelete(NULL); //partial testing
 
     if ( !ota_load_main_app(main_url, main_version, main_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)
@@ -66,12 +64,12 @@ void ota_task(void *arg) {
             if ( new_version) free( new_version);
             if (self_version) free(self_version);
             ota_version=ota_get_version(OTAURL);
-            if (ota_get_hash(OTAURL, ota_version, CERTFILE, signature)) { //no cert.sig exists yet on server
+            if (ota_get_hash(OTAURL, ota_version, CERTFILE, signature)) { //no certs.sector.sig exists yet on server
                 if (have_private_key) {
                     ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
-                    ota_get_pubkey(pubkey);
-                    if (ota_verify_pubkey(pubkey)) vTaskDelete(NULL); //something is horribly wrong
-                    ota_sign(active_cert_sector,1); //reports to console
+vTaskDelete(NULL); //partial testing
+                    if (ota_verify_pubkey()) vTaskDelete(NULL); //something is horribly wrong
+                    ota_sign(active_cert_sector,1, signature); //reports to console
                 } else {
                     continue; //loop again and try later
                 }
