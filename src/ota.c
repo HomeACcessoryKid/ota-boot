@@ -88,7 +88,7 @@ int ota_get_privkey() {
     byte buffer[ECDSAKEYLENGTHMAX];
     int ret;
     unsigned int idx;
-    int i,length;
+    int length;
     
     //load private key as produced by openssl
     if (!spiflash_read(0xF3000, (byte *)buffer, 24)) {
@@ -131,6 +131,7 @@ int ota_get_privkey() {
     byte hash[WC_SHA384_DIGEST_SIZE];
     printf("DIGSIZE: %d\n",WC_SHA384_DIGEST_SIZE);
 
+    int i;
     wc_RNG_GenerateBlock(&rng, hash, WC_SHA384_DIGEST_SIZE);
     printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\n");
     int answer;
@@ -400,9 +401,9 @@ int   ota_get_file(char * url, char * version, char * name, int sector) { //numb
                 location+=9; //flush "HTTP/1.1 "
                 slash=atoi(location);
                 printf("HTTP returns %d\n",slash);
-                if (slash!=206) return -1;
+                if (slash!=302) return -1;
 
-                location[strlen(location)]=' '; //for further headers
+                recv_buf[strlen(recv_buf)]=' '; //for further headers
                 location=strstr(recv_buf,"Location: ");
                 strchr(location,'\r')[0]=0;
                 location+=18; //flush Location: https://
