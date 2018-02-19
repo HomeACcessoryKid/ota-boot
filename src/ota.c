@@ -143,8 +143,7 @@ int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector
 int ota_verify_pubkey(int sector) { //check if public and private key are a pair
     printf("ota_verify_pubkey\n");
     
-    int ret;
-    ret=ota_get_pubkey(sector);
+    ota_get_pubkey(sector);
     byte hash[WC_SHA384_DIGEST_SIZE];
     WC_RNG rng;
     wc_RNG_GenerateBlock(&rng, hash, WC_SHA384_DIGEST_SIZE);
@@ -162,8 +161,34 @@ int ota_verify_pubkey(int sector) { //check if public and private key are a pair
     return answer-1;
 }
 
+void ota_hash(int start_sector, int num_sectors, byte * hash) {
+    printf("ota_hash\n");
+    
+    int slice;
+    byte buffer[1024];
+    Sha384 sha;
+    
+    wc_InitSha384(&sha);
+    for (slice=0;slice<num_sectors*4;slice++) {
+        if (!spiflash_read(start_sector+slice*1024, (byte *)buffer, 1024)) {
+            printf("error reading flash\n");   break;
+        }
+        wc_Sha384Update(&sha, buffer, 1024);
+    }
+    wc_Sha384Final(&sha, hash);
+}
+
 void ota_sign(int start_sector, int num_sectors, signature_t* signature) {
     printf("ota_sign\n");
+    
+    unsigned int i,siglen=104;
+    WC_RNG rng;
+
+    ota_hash(start_sector, num_sectors, signature->hash);
+    wc_ecc_sign_hash(signature->hash, WC_SHA384_DIGEST_SIZE, signature->sign, &siglen, &rng, &prvecckey);
+    printf("echo "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",signature->hash[i]); printf("> x.hex\n");
+    printf("echo "); for (i=0;i<siglen               ;i++) printf("%02x ",signature->sign[i]); printf(">>x.hex\n");
+    printf("xxd -r -p x.hex > x.sig\n");  printf("rm x.hex\n");
 }
 
 int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-release or older,-1)
@@ -574,7 +599,7 @@ int   ota_get_hash(char * url, char * version, char * name, signature_t* signatu
     strcat(signame,".sig");
     ret=ota_get_file_ex(url,version,signame,0,signature);
     free(signame);
-    return ret;
+    if (ret>=0) return 0; else return ret;
 }
 
 int   ota_verify_hash(int sector, byte* hash, int filesize) {
