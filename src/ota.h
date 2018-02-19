@@ -2,7 +2,7 @@
 #define __OTA_H__
 
 #define SECTORSIZE 4096
-#define BOOT0SECTOR 2
+#define BOOT0SECTOR 0x80000
 #define HOST "github.com"
 #define HTTPS_PORT 443
 #define LOCAL_PORT_START 49152

@@ -545,6 +545,7 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, signa
                                 writespace+=SECTORSIZE;
                             }
                             if (!spiflash_write(sector+collected, (byte *)recv_buf, ret)) return -7; //write error
+                            writespace-=ret;
                         } else { //signature
                             
                         }
