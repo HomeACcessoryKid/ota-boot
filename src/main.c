@@ -73,16 +73,18 @@ void ota_task(void *arg) {
             ota_version=ota_get_version(OTAURL);
             if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //no certs.sector.sig exists yet on server
                 if (have_private_key) {
-                    ota_sign(active_cert_sector,1, &signature); //reports to console
+                    ota_sign(active_cert_sector,SECTORSIZE, &signature); //reports to console
                     vTaskDelete(NULL); //upload the signature out of band to github and start again
                 } else {
                     continue; //loop again and try later
                 }
             }
-            if (ota_verify_hash(active_cert_sector,signature.hash,SECTORSIZE)) { //seems we need to download certificates
+            if (ota_verify_signature(&signature)) { //trouble, so abort
+                break; //leads to boot=0
+            }
+            if (ota_verify_hash(active_cert_sector,&signature,SECTORSIZE)) { //seems we need to download certificates
                 ota_get_file(OTAURL,ota_version,CERTFILE,backup_cert_sector);
-                if (ota_verify_hash(backup_cert_sector,signature.hash,SECTORSIZE)|| ota_verify_signature(&signature)) {
-                    //trouble, so abort
+                if (ota_verify_hash(backup_cert_sector,&signature,SECTORSIZE)) { //trouble, so abort
                     break; //leads to boot=0
                 }
                 ota_swap_cert_sector();
@@ -92,12 +94,13 @@ void ota_task(void *arg) {
                 //report by syslog?  //trouble, so abort
                 break; //leads to boot=0
             }
+vTaskDelete(NULL); //testing
             if (ota_compare(ota_version,MYVERSION)>0) { //how to get version into code? or codeversion into github
                 self_version=ota_get_version(SELFURL);
                 ota_get_hash(SELFURL, ota_version, SELFFILE, &signature);
                 file_size=ota_get_file(SELFURL,self_version,SELFFILE,BOOT0SECTOR);
                 if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
-                if (ota_verify_hash(BOOT0SECTOR,signature.hash,file_size)) continue; //download failed
+                if (ota_verify_hash(BOOT0SECTOR,&signature,file_size)) continue; //download failed
                 break; //leads to boot=0 and starts self-updater
             } //ota code is up to date
             new_version=ota_get_version(main_url);
@@ -105,7 +108,7 @@ void ota_task(void *arg) {
                 ota_get_hash(main_url, new_version, main_file, &signature);
                 file_size=ota_get_file(main_url,new_version,main_file,BOOT0SECTOR);
                 if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
-                if (ota_verify_hash(BOOT0SECTOR,signature.hash,file_size)) continue; //download failed
+                if (ota_verify_hash(BOOT0SECTOR,&signature,file_size)) continue; //download failed
             } //nothing to update
             ota_write_status0(); //we have been successful, hurray!
             break; //leads to boot=0 and starts main app

@@ -18,12 +18,13 @@
 						"2.pool.ntp.org", "3.pool.ntp.org"
 
 #define ECDSAKEYLENGTHMAX 128 //to be verified better, example is 120 bytes secP384r1
-
+#define HASHSIZE  48 //SHA-384
+#define SIGNSIZE 104  //ECDSA r+s in ASN1 format secP384r1
 typedef unsigned char byte;
 
 typedef struct {
-    byte hash[48]; //SHA-384
-    byte sign[104]; //ECDSA r+s in ASN1 format secP384r1
+    byte hash[HASHSIZE];
+    byte sign[SIGNSIZE];
 } signature_t;
 
 int active_cert_sector;
@@ -51,7 +52,7 @@ int   ota_get_file(char * url, char * version, char * name, int sector); //numbe
 
 int   ota_get_hash(char * url, char * version, char * name, signature_t* signature);
 
-int   ota_verify_hash(int sector, byte* hash, int filesize);
+int   ota_verify_hash(int address, signature_t* signature, int filesize);
     
 int   ota_verify_signature(signature_t* signature);
 

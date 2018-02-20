@@ -30,7 +30,7 @@ void MyLoggingCallback(const int logLevel, const char* const logMessage) {
 
 
 void  ota_init() {
-    printf("ota_init\n");
+    printf("--- ota_init\n");
     
     //time support
     time_t ts;
@@ -83,7 +83,7 @@ void  ota_init() {
 }
 
 int ota_get_privkey() {
-    printf("ota_get_privkey\n");
+    printf("--- ota_get_privkey\n");
     
     byte buffer[ECDSAKEYLENGTHMAX];
     int ret;
@@ -114,7 +114,7 @@ int ota_get_privkey() {
 }
 
 int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector
-    printf("ota_get_pubkey\n");
+    printf("--- ota_get_pubkey\n");
     
     byte buf[ECDSAKEYLENGTHMAX];
     byte * buffer=buf;
@@ -141,58 +141,64 @@ int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector
 }
 
 int ota_verify_pubkey(int sector) { //check if public and private key are a pair
-    printf("ota_verify_pubkey\n");
+    printf("--- ota_verify_pubkey\n");
     
     ota_get_pubkey(sector);
-    byte hash[WC_SHA384_DIGEST_SIZE];
+    byte hash[HASHSIZE];
     WC_RNG rng;
-    wc_RNG_GenerateBlock(&rng, hash, WC_SHA384_DIGEST_SIZE);
-    //int i; printf("hash: "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",hash[i]); printf("\n");
+    wc_RNG_GenerateBlock(&rng, hash, HASHSIZE);
+    //int i; printf("hash: "); for (i=0;i<HASHSIZE;i++) printf("%02x ",hash[i]); printf("\n");
     
     int answer;
-    unsigned int siglen=104;
-    byte signature[104];
+    unsigned int siglen=SIGNSIZE;
+    byte signature[SIGNSIZE];
 
-    wc_ecc_sign_hash(hash, WC_SHA384_DIGEST_SIZE, signature, &siglen, &rng, &prvecckey);
-    wc_ecc_verify_hash(signature, siglen, hash, WC_SHA384_DIGEST_SIZE, &answer, &pubecckey);
+    wc_ecc_sign_hash(hash, HASHSIZE, signature, &siglen, &rng, &prvecckey);
+    wc_ecc_verify_hash(signature, siglen, hash, HASHSIZE, &answer, &pubecckey);
     
     printf("key valid: %d\n",answer);
         
     return answer-1;
 }
 
-void ota_hash(int start_sector, int num_sectors, byte * hash) {
-    printf("ota_hash\n");
+void ota_hash(int start_sector, int filesize, byte * hash) {
+    printf("--- ota_hash\n");
     
-    int slice;
+    int bytes;
     byte buffer[1024];
     Sha384 sha;
     
     wc_InitSha384(&sha);
-    for (slice=0;slice<num_sectors*4;slice++) {
-        if (!spiflash_read(start_sector+slice*1024, (byte *)buffer, 1024)) {
+    for (bytes=0;bytes<filesize-1024;bytes+=1024) {
+        printf("bytes: %d\n",bytes);
+        if (!spiflash_read(start_sector+bytes, (byte *)buffer, 1024)) {
             printf("error reading flash\n");   break;
         }
         wc_Sha384Update(&sha, buffer, 1024);
     }
+    printf("bytes: %d\n",bytes);
+    if (!spiflash_read(start_sector+bytes, (byte *)buffer, filesize-bytes)) {
+        printf("error reading flash\n");
+    }
+    wc_Sha384Update(&sha, buffer, filesize-bytes);
     wc_Sha384Final(&sha, hash);
 }
 
-void ota_sign(int start_sector, int num_sectors, signature_t* signature) {
-    printf("ota_sign\n");
+void ota_sign(int start_sector, int filesize, signature_t* signature) {
+    printf("--- ota_sign\n");
     
-    unsigned int i,siglen=104;
+    unsigned int i,siglen=SIGNSIZE;
     WC_RNG rng;
 
-    ota_hash(start_sector, num_sectors, signature->hash);
-    wc_ecc_sign_hash(signature->hash, WC_SHA384_DIGEST_SIZE, signature->sign, &siglen, &rng, &prvecckey);
-    printf("echo "); for (i=0;i<WC_SHA384_DIGEST_SIZE;i++) printf("%02x ",signature->hash[i]); printf("> x.hex\n");
-    printf("echo "); for (i=0;i<siglen               ;i++) printf("%02x ",signature->sign[i]); printf(">>x.hex\n");
+    ota_hash(start_sector, filesize, signature->hash);
+    wc_ecc_sign_hash(signature->hash, HASHSIZE, signature->sign, &siglen, &rng, &prvecckey);
+    printf("echo "); for (i=0;i<HASHSIZE;i++) printf("%02x ",signature->hash[i]); printf("> x.hex\n");
+    printf("echo "); for (i=0;i<siglen  ;i++) printf("%02x ",signature->sign[i]); printf(">>x.hex\n");
     printf("xxd -r -p x.hex > x.sig\n");  printf("rm x.hex\n");
 }
 
 int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-release or older,-1)
-    printf("ota_compare\n");
+    printf("--- ota_compare\n");
     char* dot;
     int valuen=0,valueo=0;
     char news[MAXVERSIONLEN],olds[MAXVERSIONLEN];
@@ -226,6 +232,7 @@ int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-re
 }
 
 static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
+    printf("--- ota_connect\n");
     int ret;
     ip_addr_t target_ip;
     struct sockaddr_in sock_addr;
@@ -308,12 +315,12 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
 }
 
 int   ota_load_main_app(char * url, char * version, char * name) {
-    printf("ota_load_main_app\n");
+    printf("--- ota_load_main_app\n");
     return 0;
 }
 
 void  ota_set_validate(int onoff) {
-    printf("ota_set_validate...");
+    printf("--- ota_set_validate...");
     int ret=0;
     byte abyte[1];
     
@@ -344,7 +351,7 @@ void  ota_set_validate(int onoff) {
 }
 
 char* ota_get_version(char * url) {
-    printf("ota_get_version\n");
+    printf("--- ota_get_version\n");
     
     char* version=NULL;
     int retc, ret=0;
@@ -411,7 +418,7 @@ char* ota_get_version(char * url) {
 }
 
 int   ota_get_file_ex(char * url, char * version, char * name, int sector, signature_t* signature) { //number of bytes
-    printf("ota_get_file_ex\n");
+    printf("--- ota_get_file_ex\n");
     
     int retc, ret=0, slash;
     WOLFSSL*     ssl;
@@ -535,7 +542,7 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, signa
                         location+=21; //flush Content-Range: bytes //
                         location=strstr(location,"/"); location++; //flush /
                         length=atoi(location);
-                        //verify if last bytes are crlfcrlf else slash--
+                        //verify if last bytes are crlfcrlf else header=1
                     } else {
                         recv_bytes += ret;
                         if (sector) { //write to flash
@@ -547,7 +554,9 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, signa
                             if (!spiflash_write(sector+collected, (byte *)recv_buf, ret)) return -7; //write error
                             writespace-=ret;
                         } else { //signature
-                            
+                            if (ret>HASHSIZE+SIGNSIZE) return -8; //signature file too long
+                            memcpy(signature->hash,recv_buf,HASHSIZE);
+                            if (ret>HASHSIZE)  memcpy(signature->sign,recv_buf+HASHSIZE,SIGNSIZE);
                         }
                         collected+=ret;
                         int i;
@@ -561,7 +570,7 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, signa
                     if (!ret && collected<length) retc = ota_connect(host2, HTTPS_PORT, &socket, &ssl); //memory leak?
                     break;
                 }
-                header=0;
+                header=0; //move to header section itself
             } while(recv_bytes<clength);
             printf("so far collected %d bytes\n", collected);
         } else {
@@ -589,41 +598,56 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, signa
 }
 
 int   ota_get_file(char * url, char * version, char * name, int sector) { //number of bytes
-    printf("ota_get_file\n");
+    printf("--- ota_get_file\n");
     return ota_get_file_ex(url,version,name,sector,NULL);
 }
 int   ota_get_hash(char * url, char * version, char * name, signature_t* signature) {
-    printf("ota_get_hash\n");
+    printf("--- ota_get_hash\n");
     int ret;
     char * signame=malloc(strlen(name));
     strcpy(signame,name);
     strcat(signame,".sig");
+    memset(signature->hash,0,HASHSIZE);
+    memset(signature->sign,0,SIGNSIZE);
     ret=ota_get_file_ex(url,version,signame,0,signature);
     free(signame);
     if (ret>=0) return 0; else return ret;
 }
 
-int   ota_verify_hash(int sector, byte* hash, int filesize) {
-    printf("ota_verify_hash\n");
-    return 0;
+int   ota_verify_hash(int address, signature_t* signature, int filesize) {
+    printf("--- ota_verify_hash\n");
+    
+    byte hash[HASHSIZE];
+    ota_hash(address, filesize, hash);
+//     int i;
+//     printf("signhash:"); for (i=0;i<HASHSIZE;i++) printf(" %02x",signature->hash[i]); printf("\n");
+//     printf("calchash:"); for (i=0;i<HASHSIZE;i++) printf(" %02x",           hash[i]); printf("\n");
+        
+    return memcmp(hash,signature->hash,HASHSIZE);
 }
 
 int   ota_verify_signature(signature_t* signature) {
-    printf("ota_verify_signature\n");
-    return 0;
+    printf("--- ota_verify_signature\n");
+    
+    int answer=0;
+
+    wc_ecc_verify_hash(signature->sign, SIGNSIZE, signature->hash, HASHSIZE, &answer, &pubecckey);
+    printf("signature valid: %d\n",answer);
+        
+    return answer-1;
 }
 
 void  ota_swap_cert_sector() {
-    printf("ota_swap_cert_sector\n");
+    printf("--- ota_swap_cert_sector\n");
 
 }
 
 void  ota_write_status0() {
-    printf("ota_write_status0\n");
+    printf("--- ota_write_status0\n");
 
 }
 
 void  ota_reboot() {
-    printf("ota_reboot\n");
+    printf("--- ota_reboot\n");
 
 }
