@@ -40,28 +40,31 @@ void ota_task(void *arg) {
     extern int backup_cert_sector;
     int file_size; //32bit
     int have_private_key=0;
+    int keyid,foundkey=0;
+    char keyname[KEYNAMELEN];
     
     ota_init();
     if (!active_cert_sector) {
-        active_cert_sector=0xF6000;
-        backup_cert_sector=0xF5000;
+        active_cert_sector=HIGHERCERTSECTOR;
+        backup_cert_sector=LOWERCERTSECTOR;
         ota_version=ota_get_version(OTAURL);
         ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
+        //TODO: activate sector
     }
     printf("active_cert_sector: 0x%05x\n",active_cert_sector);
+    file_size=ota_get_pubkey(active_cert_sector);
     
     if (!ota_get_privkey()) { //have private key
         have_private_key=1;
         printf("have private key\n");
+        if (ota_verify_pubkey()) ota_sign(active_cert_sector,file_size, &signature);//use this (old) privkey to sign the (new) pubkey
     }
-    
-    if (ota_verify_pubkey(active_cert_sector)) vTaskDelete(NULL); //something is horribly wrong
 
     if ( !ota_load_main_app(main_url, main_version, main_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)
             //printf("%d\n",sdk_system_get_time()/1000);
             //need for a protection against an electricity outage recovery storm
-            vTaskDelay(holdoff_time*1000/portTICK_PERIOD_MS);
+            vTaskDelay(holdoff_time*(1000/portTICK_PERIOD_MS));
             holdoff_time*=HOLDOFF_MULTIPLIER; holdoff_time=(holdoff_time<HOLDOFF_MAX) ? holdoff_time : HOLDOFF_MAX;
             
             //do we still have a valid internet connexion? dns resolve github... should not be private IP
@@ -73,21 +76,37 @@ void ota_task(void *arg) {
             ota_version=ota_get_version(OTAURL);
             if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //no certs.sector.sig exists yet on server
                 if (have_private_key) {
-                    ota_sign(active_cert_sector,SECTORSIZE, &signature); //reports to console
+                    ota_sign(active_cert_sector,SECTORSIZE-1, &signature); //reports to console
                     vTaskDelete(NULL); //upload the signature out of band to github and start again
                 } else {
                     continue; //loop again and try later
                 }
             }
-            if (ota_verify_signature(&signature)) { //trouble, so abort
-                break; //leads to boot=0
-            }
-            if (ota_verify_hash(active_cert_sector,&signature,SECTORSIZE)) { //seems we need to download certificates
+            if (ota_verify_hash(active_cert_sector,&signature,SECTORSIZE-1)) { //seems we need to download certificates
                 ota_get_file(OTAURL,ota_version,CERTFILE,backup_cert_sector);
-                if (ota_verify_hash(backup_cert_sector,&signature,SECTORSIZE)) { //trouble, so abort
+                if (ota_verify_hash(backup_cert_sector,&signature,SECTORSIZE-1)) { //hash and file do not match
                     break; //leads to boot=0
                 }
+                if (ota_verify_signature(&signature)) { //maybe an update on the public key
+                    keyid=1;
+                    while (sprintf(keyname,KEYNAME,keyid) , ota_get_hash(OTAURL, ota_version, keyname, &signature)) {
+                        if (!ota_verify_signature(&signature)) {foundkey=1; break;}
+                        keyid++;
+                    }
+                    if (!foundkey) break; //leads to boot=0
+                    //we found the head of the chain of pubkeys
+                    while (--keyid) {
+                        if (ota_get_newkey(OTAURL,ota_version,keyname,&signature)) {foundkey=0; break;}//contains a check of hash inside
+                        sprintf(keyname,KEYNAME,keyid);
+                        if (ota_get_hash(OTAURL,ota_version,keyname,&signature)) {foundkey=0; break;}
+                        if (ota_verify_signature(&signature)) {foundkey=0; break;}
+                    }
+                    if (!foundkey) break; //leads to boot=0
+                    //now lets check if the backup_cert_sector contains the true pubkey
+                    if (ota_verify_hash(backup_cert_sector,&signature,PKEYSIZE)) break; //leads to boot=0
+                }
                 ota_swap_cert_sector();
+                ota_get_pubkey(active_cert_sector);
             } //certificates are good now
             ota_set_validate(1); //reject faked server
             if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //testdownload, if server is fake will trigger
