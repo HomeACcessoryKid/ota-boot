@@ -49,7 +49,7 @@ void ota_task(void *arg) {
         backup_cert_sector=LOWERCERTSECTOR;
         ota_version=ota_get_version(OTAURL);
         ota_get_file(OTAURL,ota_version,CERTFILE,active_cert_sector);
-        //TODO: activate sector
+        ota_activate_sector(active_cert_sector);
     }
     printf("active_cert_sector: 0x%05x\n",active_cert_sector);
     file_size=ota_get_pubkey(active_cert_sector);

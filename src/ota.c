@@ -85,13 +85,14 @@ void  ota_init() {
         active_cert_sector=0;
         backup_cert_sector=0;
     }
+    printf("active_sector: 0x%x\n",active_cert_sector);
     ota_set_validate(0);
 }
 
 int ota_get_privkey() {
     printf("--- ota_get_privkey\n");
     
-    byte buffer[ECDSAKEYLENGTHMAX];
+    byte buffer[PKEYSIZE]; //maybe 49 bytes would be enough
     int ret;
     unsigned int idx;
     int length;
@@ -122,15 +123,15 @@ int ota_get_privkey() {
 int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector, report filesize
     printf("--- ota_get_pubkey\n");
     
-    byte buf[ECDSAKEYLENGTHMAX];
+    byte buf[PKEYSIZE];
     byte * buffer=buf;
     int length,ret;
     //load public key as produced by openssl
-    if (!spiflash_read(sector, (byte *)buffer, ECDSAKEYLENGTHMAX)) {
+    if (!spiflash_read(sector, (byte *)buffer, PKEYSIZE)) {
         printf("error reading flash\n");    return -1;
     }
     if (buffer[ 0]!=0x30 || buffer[ 1]!=0x76 || buffer[ 2]!=0x30) return -2; //not a valid keyformat
-    if (buffer[20]!=0x30 || buffer[21]!=0x62 || buffer[22]!=0x00) return -2; //not a valid keyformat
+    if (buffer[20]!=0x03 || buffer[21]!=0x62 || buffer[22]!=0x00) return -2; //not a valid keyformat
     length=97;
     
     int idx; for (idx=0;idx<length;idx++) printf(" %02x",buffer[idx+23]);
@@ -138,7 +139,7 @@ int ota_get_pubkey(int sector) { //get the ecdsa key from the indicated sector, 
     ret=wc_ecc_import_x963_ex(buffer+23,length,&pubecckey,ECC_SECP384R1);
     printf("\nret: %d\n",ret);
 
-    if (!ret)return 120; else return ret;
+    if (!ret)return PKEYSIZE; else return ret;
 }
 
 int ota_verify_pubkey(void) { //check if public and private key are a pair
@@ -328,14 +329,14 @@ void  ota_set_validate(int onoff) {
         printf("ON\n");
         validate=1;
         do {
-            if (!spiflash_read(active_cert_sector+(ret++), (byte *)abyte, 1)) {
+            if (!spiflash_read(active_cert_sector+PKEYSIZE+(ret++), (byte *)abyte, 1)) {
                 printf("error reading flash\n");
                 break;
             }
         } while (abyte[0]!=0xff); ret--;
         printf("certs size: %d\n",ret);
         byte *certs=malloc(ret);
-        spiflash_read(active_cert_sector, (byte *)certs, ret);
+        spiflash_read(active_cert_sector+PKEYSIZE, (byte *)certs, ret);
 
         ret=wolfSSL_CTX_load_verify_buffer(ctx, certs, ret, SSL_FILETYPE_PEM);
         if ( ret != SSL_SUCCESS) {
@@ -674,6 +675,13 @@ void  ota_swap_cert_sector() {
         active_cert_sector=HIGHERCERTSECTOR;
         backup_cert_sector=LOWERCERTSECTOR;
     }
+}
+
+void  ota_activate_sector(int sector) {
+    printf("--- ota_activate_sector\n");
+    byte abyte[1];
+    
+    abyte[0]=0xf0; if (!spiflash_write(sector+SECTORSIZE-1, abyte, 1)) printf("error writing flash\n");
 }
 
 void  ota_write_status0() {
