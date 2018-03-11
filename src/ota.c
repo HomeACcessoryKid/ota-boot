@@ -324,8 +324,8 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
 
 }
 
-int   ota_load_main_app(char * url, char * version, char * name) {
-    printf("--- ota_load_main_app\n");
+int   ota_load_user_app(char * url, char * version, char * name) {
+    printf("--- ota_load_user_app\n");
     return 0;
 }
 
