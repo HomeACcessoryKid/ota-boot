@@ -48,12 +48,12 @@ void ota_task(void *arg) {
     if (!ota_get_privkey()) { //have private key
         have_private_key=1;
         printf("have private key\n");
-        if (ota_verify_pubkey()) ota_sign(active_cert_sector,file_size, &signature);//use this (old) privkey to sign the (new) pubkey
+        if (ota_verify_pubkey()) ota_sign(active_cert_sector,file_size, &signature, "pub-1.key");//use this (old) privkey to sign the (new) pubkey
     }
 
     if ( !ota_load_user_app(user_url, user_version, user_file)) { //if url/version/file configured
         for (;;) { //escape from this loop by continue (try again) or break (boots into slot 0)
-            printf("looping\n");
+            printf("--- looping\n");
             //printf("%d\n",sdk_system_get_time()/1000);
             //need for a protection against an electricity outage recovery storm
             vTaskDelay(holdoff_time*(1000/portTICK_PERIOD_MS));
@@ -67,15 +67,15 @@ void ota_task(void *arg) {
             ota_version=ota_get_version(OTAURL);
             if (ota_get_hash(OTAURL, ota_version, CERTFILE, &signature)) { //no certs.sector.sig exists yet on server
                 if (have_private_key) {
-                    ota_sign(active_cert_sector,SECTORSIZE-1, &signature); //reports to console
+                    ota_sign(active_cert_sector,SECTORSIZE-1, &signature, CERTFILE); //reports to console
                     vTaskDelete(NULL); //upload the signature out of band to github and start again
                 } else {
                     continue; //loop and try again later
                 }
             }
-            if (ota_verify_hash(active_cert_sector,&signature,SECTORSIZE-1)) { //seems we need to download certificates
+            if (ota_verify_hash(active_cert_sector,&signature)) { //seems we need to download certificates
                 ota_get_file(OTAURL,ota_version,CERTFILE,backup_cert_sector);
-                if (ota_verify_hash(backup_cert_sector,&signature,SECTORSIZE-1)) { //hash and file do not match
+                if (ota_verify_hash(backup_cert_sector,&signature)) { //hash and file do not match
                     break; //leads to boot=0
                 }
                 if (ota_verify_signature(&signature)) { //maybe an update on the public key
@@ -94,7 +94,7 @@ void ota_task(void *arg) {
                     }
                     if (!foundkey) break; //leads to boot=0
                     //now lets check if the backup_cert_sector contains the true pubkey
-                    if (ota_verify_hash(backup_cert_sector,&signature,PKEYSIZE)) break; //leads to boot=0
+                    if (ota_verify_hash(backup_cert_sector,&signature)) break; //leads to boot=0
                 }
                 ota_swap_cert_sector();
                 ota_get_pubkey(active_cert_sector);
@@ -105,29 +105,43 @@ void ota_task(void *arg) {
                 break; //leads to boot=0
             }
             if (ota_boot()) { //running the ota-boot software now
-                //get the latest ota software in boot sector 1
-                file_size=ota_get_file(OTAURL,ota_version,MAINFILE,BOOT1SECTOR);
-                if (file_size<=0) continue; //try again later
+                //take care our boot code gets a signature by loading it in boot1sector just for this purpose
+                if (ota_get_hash(OTAURL, ota_version, BOOTFILE, &signature)) { //no signature yet
+                    if (have_private_key) {
+                        file_size=ota_get_file(OTAURL,ota_version,BOOTFILE,BOOT1SECTOR);
+                        if (file_size<=0) continue; //try again later
+                        ota_sign(BOOT1SECTOR,file_size, &signature, BOOTFILE); //reports to console
+                        vTaskDelete(NULL); //upload the signature out of band to github and start again
+                    }
+                }
+                //now get the latest ota main software in boot sector 1
                 if (ota_get_hash(OTAURL, ota_version, MAINFILE, &signature)) { //no signature yet
                     if (have_private_key) {
-                        ota_sign(BOOT1SECTOR,file_size, &signature); //reports to console
+                        file_size=ota_get_file(OTAURL,ota_version,MAINFILE,BOOT1SECTOR);
+                        if (file_size<=0) continue; //try again later
+                        ota_sign(BOOT1SECTOR,file_size, &signature, MAINFILE); //reports to console
                         vTaskDelete(NULL); //upload the signature out of band to github and start again
                     } else {
                         continue; //loop and try again later
                     }
-                }
-                //testing if (ota_verify_signature(&signature)) vTaskDelete(NULL); //this should never happen
-                //testing if (ota_verify_hash(BOOT1SECTOR,&signature,file_size)) continue; //download failed
+                } else { //we have a signature, maybe also the main file?
+                    if (ota_verify_hash(BOOT1SECTOR,&signature)) { //not yet downloaded
+                        file_size=ota_get_file(OTAURL,ota_version,MAINFILE,BOOT1SECTOR);
+                        if (file_size<=0) continue; //try again later
+                        if (ota_verify_hash(BOOT1SECTOR,&signature)) continue; //download failed
+                    }
+                } //now file is here for sure and matches hash
+                if (ota_verify_signature(&signature)) vTaskDelete(NULL); //this should never happen
                 ota_temp_boot(); //launches the ota software in bootsector 1
-                printf("should not see this\n");
-            } else {  //running the ota-main software now
+            } else {  //running ota-main software now
                 printf("running ota-main software\n");
+                //if there is a newer version of ota-main...
                 if (ota_compare(ota_version,OTAVERSION)>0) { //set OTAVERSION when running make and match with github
                     ota_get_hash(OTAURL, ota_version, BOOTFILE, &signature);
                     file_size=ota_get_file(OTAURL,ota_version,BOOTFILE,BOOT0SECTOR);
                     if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
                     if (ota_verify_signature(&signature)) continue; //this should never happen
-                    if (ota_verify_hash(BOOT0SECTOR,&signature,file_size)) continue; //download failed
+                    if (ota_verify_hash(BOOT0SECTOR,&signature)) continue; //download failed
                     break; //leads to boot=0 and starts self-updating/otaboot-app
                 } //ota code is up to date
 vTaskDelete(NULL); //testing
@@ -136,7 +150,7 @@ vTaskDelete(NULL); //testing
                     ota_get_hash(user_url, new_version, user_file, &signature);
                     file_size=ota_get_file(user_url,new_version,user_file,BOOT0SECTOR);
                     if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
-                    if (ota_verify_hash(BOOT0SECTOR,&signature,file_size)) continue; //download failed
+                    if (ota_verify_hash(BOOT0SECTOR,&signature)) continue; //download failed
                 } //nothing to update
                 ota_write_status0(); //we have been successful, hurray!
                 break; //leads to boot=0 and starts updated user app

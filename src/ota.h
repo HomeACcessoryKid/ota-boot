@@ -40,6 +40,7 @@ typedef unsigned char byte;
 
 typedef struct {
     byte hash[HASHSIZE];
+    unsigned int   size; //32 bit
     byte sign[SIGNSIZE];
 } signature_t;
 
@@ -54,7 +55,7 @@ int   ota_get_pubkey(int sector); //get the ecdsa key from the active_cert_secto
 
 int   ota_verify_pubkey(void); //check if public and private key are a pair
 
-void  ota_sign(int start_sector, int num_sectors, signature_t* signature);
+void  ota_sign(int start_sector, int num_sectors, signature_t* signature, char* name);
 
 int   ota_compare(char* newv, char* oldv);
 
@@ -70,7 +71,7 @@ int   ota_get_newkey(char * url, char * version, char * name, signature_t* signa
 
 int   ota_get_hash(char * url, char * version, char * name, signature_t* signature);
 
-int   ota_verify_hash(int address, signature_t* signature, int filesize);
+int   ota_verify_hash(int address, signature_t* signature);
     
 int   ota_verify_signature(signature_t* signature);
 

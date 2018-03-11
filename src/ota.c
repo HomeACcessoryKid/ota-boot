@@ -44,7 +44,7 @@ void  ota_init() {
     //time support
     time_t ts;
     char *servers[] = {SNTP_SERVERS};
-	sntp_set_update_delay(5*60000); //SNTP will request an update each 5 minutes
+	sntp_set_update_delay(24*60*60000); //SNTP will request an update each 24 hour
 	const struct timezone tz = {1*60, 0}; //Set GMT+1 zone, daylight savings off
 	sntp_initialize(&tz);
 	sntp_set_servers(servers, sizeof(servers) / sizeof(char*)); //Servers must be configured right after initialization
@@ -179,22 +179,24 @@ void ota_hash(int start_sector, int filesize, byte * hash) {
     Sha384 sha;
     
     wc_InitSha384(&sha);
+    //printf("bytes: ");
     for (bytes=0;bytes<filesize-1024;bytes+=1024) {
-        printf("bytes: %d\n",bytes);
+        //printf("%d ",bytes);
         if (!spiflash_read(start_sector+bytes, (byte *)buffer, 1024)) {
             printf("error reading flash\n");   break;
         }
         wc_Sha384Update(&sha, buffer, 1024);
     }
-    printf("bytes: %d\n",bytes);
+    //printf("%d\n",bytes);
     if (!spiflash_read(start_sector+bytes, (byte *)buffer, filesize-bytes)) {
         printf("error reading flash\n");
     }
+    //printf("filesize %d\n",filesize);
     wc_Sha384Update(&sha, buffer, filesize-bytes);
     wc_Sha384Final(&sha, hash);
 }
 
-void ota_sign(int start_sector, int filesize, signature_t* signature) {
+void ota_sign(int start_sector, int filesize, signature_t* signature, char* name) {
     printf("--- ota_sign\n");
     
     unsigned int i,siglen=SIGNSIZE;
@@ -203,8 +205,9 @@ void ota_sign(int start_sector, int filesize, signature_t* signature) {
     ota_hash(start_sector, filesize, signature->hash);
     wc_ecc_sign_hash(signature->hash, HASHSIZE, signature->sign, &siglen, &rng, &prvecckey);
     printf("echo "); for (i=0;i<HASHSIZE;i++) printf("%02x ",signature->hash[i]); printf("> x.hex\n");
+    printf("echo %08x >>x.hex\n",filesize);
     printf("echo "); for (i=0;i<siglen  ;i++) printf("%02x ",signature->sign[i]); printf(">>x.hex\n");
-    printf("xxd -r -p x.hex > x.sig\n");  printf("rm x.hex\n");
+    printf("xxd -r -p x.hex > %s.sig\n",name);  printf("rm x.hex\n");
 }
 
 int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-release or older,-1)
@@ -260,7 +263,7 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
     do {
         ret = netconn_gethostbyname(host, &target_ip);
     } while(ret);
-    printf("target IP is %d.%d.%d.%d\n", (unsigned char)((target_ip.addr & 0x000000ff) >> 0),
+    printf("target IP is %d.%d.%d.%d ", (unsigned char)((target_ip.addr & 0x000000ff) >> 0),
                                                 (unsigned char)((target_ip.addr & 0x0000ff00) >> 8),
                                                 (unsigned char)((target_ip.addr & 0x00ff0000) >> 16),
                                                 (unsigned char)((target_ip.addr & 0xff000000) >> 24));
@@ -272,7 +275,7 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
     }
     //printf(OK);
 
-    printf("bind socket %d......",local_port);
+    printf("bind socket %d....",local_port);
     memset(&sock_addr, 0, sizeof(sock_addr));
     sock_addr.sin_family = AF_INET;
     sock_addr.sin_addr.s_addr = 0;
@@ -283,9 +286,9 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
         printf(FAILED);
         return -2;
     }
-    printf(OK);
+    printf("OK. ");
 
-    printf("socket connect to remote ......");
+    printf("socket connect to remote....");
     memset(&sock_addr, 0, sizeof(sock_addr));
     sock_addr.sin_family = AF_INET;
     sock_addr.sin_addr.s_addr = target_ip.addr;
@@ -295,24 +298,25 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
         printf(FAILED);
         return -2;
     }
-    printf(OK);
-//wolfSSL_Debugging_ON();
+    printf("OK. ");
 
-    printf("create SSL ......");
+    printf("create SSL....");
     *ssl = wolfSSL_new(ctx);
     if (!*ssl) {
         printf(FAILED);
         return -2;
     }
-    printf(OK);
+    printf("OK. ");
 
+//wolfSSL_Debugging_ON();
     wolfSSL_set_fd(*ssl, *socket);
+    printf("set_fd done. ");
 
     if (validate) ret=wolfSSL_check_domain_name(*ssl, host);
-
-    printf("SSL to %s port %d ......", host, port);
-    ret = wolfSSL_connect(*ssl);
 //wolfSSL_Debugging_OFF();
+
+    printf("SSL to %s port %d....", host, port);
+    ret = wolfSSL_connect(*ssl);
     if (ret != SSL_SUCCESS) {
         printf("failed, return [-0x%x]\n", -ret);
         ret=wolfSSL_get_error(*ssl,ret);
@@ -424,6 +428,7 @@ char* ota_get_version(char * url) {
 //     if (retc) return retc;
 //     if (ret <= 0) return ret;
 
+    if (ota_compare(version,OTAVERSION)<0) return OTAVERSION;
     return version;
 }
 
@@ -632,26 +637,27 @@ int   ota_get_newkey(char * url, char * version, char * name, signature_t* signa
 int   ota_get_hash(char * url, char * version, char * name, signature_t* signature) {
     printf("--- ota_get_hash\n");
     int ret;
-    byte buffer[HASHSIZE+SIGNSIZE];
+    byte buffer[HASHSIZE+4+SIGNSIZE];
     char * signame=malloc(strlen(name));
     strcpy(signame,name);
     strcat(signame,".sig");
     memset(signature->hash,0,HASHSIZE);
     memset(signature->sign,0,SIGNSIZE);
-    ret=ota_get_file_ex(url,version,signame,0,buffer,HASHSIZE+SIGNSIZE);
+    ret=ota_get_file_ex(url,version,signame,0,buffer,HASHSIZE+4+SIGNSIZE);
     free(signame);
     if (ret<0) return ret;
     memcpy(signature->hash,buffer,HASHSIZE);
-    if (ret>HASHSIZE) memcpy(signature->sign,buffer+HASHSIZE,SIGNSIZE);
+    signature->size=((buffer[HASHSIZE]*256 + buffer[HASHSIZE+1])*256 + buffer[HASHSIZE+2])*256 + buffer[HASHSIZE+3];
+    if (ret>HASHSIZE+4) memcpy(signature->sign,buffer+HASHSIZE+4,SIGNSIZE);
 
     return 0;
 }
 
-int   ota_verify_hash(int address, signature_t* signature, int filesize) {
+int   ota_verify_hash(int address, signature_t* signature) {
     printf("--- ota_verify_hash\n");
     
     byte hash[HASHSIZE];
-    ota_hash(address, filesize, hash);
+    ota_hash(address, signature->size, hash);
 //     int i;
 //     printf("signhash:"); for (i=0;i<HASHSIZE;i++) printf(" %02x",signature->hash[i]); printf("\n");
 //     printf("calchash:"); for (i=0;i<HASHSIZE;i++) printf(" %02x",           hash[i]); printf("\n");
