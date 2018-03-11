@@ -4,7 +4,8 @@
 #define SECTORSIZE 4096
 #define HIGHERCERTSECTOR 0xF6000
 #define LOWERCERTSECTOR 0xF5000
-#define BOOT0SECTOR 0x80000
+#define BOOT0SECTOR 0x02000
+#define BOOT1SECTOR 0x82000
 #define HOST "github.com"
 #define HTTPS_PORT 443
 #define LOCAL_PORT_START 49152
@@ -69,6 +70,10 @@ void  ota_activate_sector(int sector);
 
 void  ota_write_status0();
 
-void  ota_reboot();
+int   ota_boot(void);
+
+void  ota_temp_boot(void);
+
+void  ota_reboot(void);
 
 #endif // __OTA_H__

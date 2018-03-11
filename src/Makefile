@@ -4,6 +4,7 @@ EXTRA_COMPONENTS = \
 	extras/sntp \
 	extras/http-parser \
 	extras/dhcpserver \
+    extras/rboot-ota \
 	$(abspath ../components/esp-wifi-config) \
 	$(abspath ../components/esp-wolfssl)
 

@@ -15,6 +15,7 @@
 #include <sntp.h>
 //#include <time.h> //included in sntp.h
 #include <spiflash.h>
+#include <rboot-api.h>
 
 static int  validate;
 
@@ -31,6 +32,14 @@ void MyLoggingCallback(const int logLevel, const char* const logMessage) {
 
 void  ota_init() {
     printf("--- ota_init\n");
+    
+    //rboot setup
+    rboot_config conf;
+    conf=rboot_get_config();
+    if (conf.count!=2 || conf.roms[0]!=BOOT0SECTOR || conf.roms[1]!=BOOT1SECTOR || conf.current_rom!=0) {
+        conf.count =2;   conf.roms[0] =BOOT0SECTOR;   conf.roms[1] =BOOT1SECTOR;   conf.current_rom =0;
+        rboot_set_config(&conf);
+    }
     
     //time support
     time_t ts;
@@ -689,7 +698,23 @@ void  ota_write_status0() {
 
 }
 
-void  ota_reboot() {
+int   ota_boot(void) {
+    printf("--- ota_boot...");
+    byte bootrom;
+    rboot_get_last_boot_rom(&bootrom);
+    printf("%d\n",bootrom);
+    return 1-bootrom;
+}
+
+void  ota_temp_boot(void) {
+    printf("--- ota_temp_boot\n");
+    
+    rboot_set_temp_rom(1);
+    sdk_system_restart();
+}
+
+void  ota_reboot(void) {
     printf("--- ota_reboot\n");
 
+    sdk_system_restart();
 }
