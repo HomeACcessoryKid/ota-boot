@@ -151,8 +151,9 @@ void ota_task(void *arg) {
                 if (ota_compare(new_version,user_version)) { //can both upgrade and downgrade
                     ota_get_hash(user_repo, new_version, user_file, &signature);
                     file_size=ota_get_file(user_repo,new_version,user_file,BOOT0SECTOR);
-                    if (file_size<=0) continue; //something went wrong, but now boot0 is broken so start over
-                    if (ota_verify_hash(BOOT0SECTOR,&signature)) continue; //download failed
+                    if (file_size<=0 || ota_verify_hash(BOOT0SECTOR,&signature)) { //something went wrong, but now boot0 is broken so start over
+                        ota_kill_boot0(); continue; //make sure the bootloader does not consider it a valid bootimage
+                    }
                 } //nothing to update
                 ota_write_status(new_version); //we have been successful, hurray!
                 break; //leads to boot=0 and starts updated user app

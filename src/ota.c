@@ -745,3 +745,10 @@ void  ota_reboot(void) {
 
     sdk_system_restart();
 }
+
+void  ota_kill_boot0(void) {
+    printf("--- ota_kill_boot0\n");
+
+    byte abyte[1];
+    abyte[0]=0x00; spiflash_write(BOOT0SECTOR, abyte, 1);
+}
