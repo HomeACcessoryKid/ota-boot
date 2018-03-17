@@ -15,6 +15,7 @@
 #include <sntp.h>
 //#include <time.h> //included in sntp.h
 #include <spiflash.h>
+#include <sysparam.h>
 #include <rboot-api.h>
 
 static int  validate;
@@ -196,7 +197,7 @@ void ota_hash(int start_sector, int filesize, byte * hash) {
     wc_Sha384Final(&sha, hash);
 }
 
-void ota_sign(int start_sector, int filesize, signature_t* signature, char* name) {
+void ota_sign(int start_sector, int filesize, signature_t* signature, char* file) {
     printf("--- ota_sign\n");
     
     unsigned int i,siglen=SIGNSIZE;
@@ -207,7 +208,7 @@ void ota_sign(int start_sector, int filesize, signature_t* signature, char* name
     printf("echo "); for (i=0;i<HASHSIZE;i++) printf("%02x ",signature->hash[i]); printf("> x.hex\n");
     printf("echo %08x >>x.hex\n",filesize);
     printf("echo "); for (i=0;i<siglen  ;i++) printf("%02x ",signature->sign[i]); printf(">>x.hex\n");
-    printf("xxd -r -p x.hex > %s.sig\n",name);  printf("rm x.hex\n");
+    printf("xxd -r -p x.hex > %s.sig\n",file);  printf("rm x.hex\n");
 }
 
 int ota_compare(char* newv, char* oldv) { //(if equal,0) (if newer,1) (if pre-release or older,-1)
@@ -328,8 +329,25 @@ static int ota_connect(char* host, int port, int *socket, WOLFSSL** ssl) {
 
 }
 
-int   ota_load_user_app(char * url, char * version, char * name) {
+int   ota_load_user_app(char * *repo, char * *version, char * *file) {
     printf("--- ota_load_user_app\n");
+    sysparam_status_t status;
+    char *value;
+
+    status = sysparam_get_string("ota_repo", &value);
+    if (status == SYSPARAM_OK) {
+        *repo=value;
+    } else return -1;
+    status = sysparam_get_string("ota_version", &value);
+    if (status == SYSPARAM_OK) {
+        *version=value;
+    } else return -1;
+    status = sysparam_get_string("ota_file", &value);
+    if (status == SYSPARAM_OK) {
+        *file=value;
+    } else return -1;
+
+    printf("ota_repo=\'%s\' ota_version=\'%s\' ota_file=\'%s\'\n",*repo,*version,*file);
     return 0;
 }
 
@@ -364,21 +382,21 @@ void  ota_set_validate(int onoff) {
     }
 }
 
-char* ota_get_version(char * url) {
+char* ota_get_version(char * repo) {
     printf("--- ota_get_version\n");
-    
+
     char* version=NULL;
     int retc, ret=0;
     WOLFSSL*     ssl;
     int socket;
-    //host=begin(url);
-    //mid =end(url)+blabla+version
+    //host=begin(repo);
+    //mid =end(repo)+blabla+version
     char* location;
     char recv_buf[RECV_BUF_LEN];
     int  send_bytes; //= sizeof(send_data);
     
     strcat(strcat(strcat(strcat(strcat(strcpy(recv_buf, \
-        REQUESTHEAD),url),"/releases/latest"),REQUESTTAIL),HOST),CRLFCRLF);
+        REQUESTHEAD),repo),"/releases/latest"),REQUESTTAIL),HOST),CRLFCRLF);
     send_bytes=strlen(recv_buf);
     //printf("%s\n",recv_buf);
 
@@ -402,7 +420,7 @@ char* ota_get_version(char * url) {
                 location=strstr(location,"tag/");
                 version=malloc(strlen(location+4));
                 strcpy(version,location+4);
-                printf("%s@version:\"%s\"\n",url,version);
+                printf("%s@version:\"%s\"\n",repo,version);
             } else {
                 printf("failed, return [-0x%x]\n", -ret);
                 ret=wolfSSL_get_error(ssl,ret);
@@ -428,18 +446,18 @@ char* ota_get_version(char * url) {
 //     if (retc) return retc;
 //     if (ret <= 0) return ret;
 
-    if (ota_compare(version,OTAVERSION)<0) return OTAVERSION;
+    if (ota_boot() && ota_compare(version,OTAVERSION)<0) return OTAVERSION;
     return version;
 }
 
-int   ota_get_file_ex(char * url, char * version, char * name, int sector, byte * buffer, int bufsz) { //number of bytes
+int   ota_get_file_ex(char * repo, char * version, char * file, int sector, byte * buffer, int bufsz) { //number of bytes
     printf("--- ota_get_file_ex\n");
     
     int retc, ret=0, slash;
     WOLFSSL*     ssl;
     int socket;
-    //host=begin(url);
-    //mid =end(url)+blabla+version
+    //host=begin(repo);
+    //mid =end(repo)+blabla+version
     char* location;
     char recv_buf[RECV_BUF_LEN];
     int  recv_bytes = 0;
@@ -453,7 +471,7 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, byte 
     if (sector==0 && buffer==NULL) return -5; //needs to be either a sector or a signature
     
     strcat(strcat(strcat(strcat(strcat(strcat(strcat(strcat(strcpy(recv_buf, \
-        REQUESTHEAD),url),"/releases/download/"),version),"/"),name),REQUESTTAIL),HOST),CRLFCRLF);
+        REQUESTHEAD),repo),"/releases/download/"),version),"/"),file),REQUESTTAIL),HOST),CRLFCRLF);
     send_bytes=strlen(recv_buf);
     printf("%s\n",recv_buf);
 
@@ -574,10 +592,10 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, byte 
                         }
                         collected+=ret;
                         int i;
-                        for (i=0;i<8;i++) printf("%02x ", recv_buf[i]);
+                        for (i=0;i<4;i++) printf("%02x ", recv_buf[i]);
                         printf("... ");
-                        for (i=8;i>0;i--) printf("%02x ", recv_buf[ret-i]);
-                        printf("\n");
+                        for (i=4;i>0;i--) printf("%02x ", recv_buf[ret-i]);
+                        printf("   ");
                     }
                 } else {
                     if (ret) {ret=wolfSSL_get_error(ssl,ret); printf("error %d\n",ret);}
@@ -586,13 +604,15 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, byte 
                 }
                 header=0; //move to header section itself
             } while(recv_bytes<clength);
-            printf("so far collected %d bytes\n", collected);
+            printf("\nso far collected %d bytes\n", collected);
         } else {
             printf("failed, return [-0x%x]\n", -ret);
             ret=wolfSSL_get_error(ssl,ret);
             printf("wolfSSL_send error = %d\n", ret);
             if (ret==-308) {
                 retc = ota_connect(host2, HTTPS_PORT, &socket, &ssl); //dangerous for eternal connecting? memory leak?
+            } else {
+                break; //give up?
             }
         }
     }
@@ -611,11 +631,11 @@ int   ota_get_file_ex(char * url, char * version, char * name, int sector, byte 
     return collected;
 }
 
-int   ota_get_file(char * url, char * version, char * name, int sector) { //number of bytes
+int   ota_get_file(char * repo, char * version, char * file, int sector) { //number of bytes
     printf("--- ota_get_file\n");
-    return ota_get_file_ex(url,version,name,sector,NULL,0);
+    return ota_get_file_ex(repo,version,file,sector,NULL,0);
 }
-int   ota_get_newkey(char * url, char * version, char * name, signature_t* signature) { //success
+int   ota_get_newkey(char * repo, char * version, char * file, signature_t* signature) { //success
     printf("--- ota_get_newkey\n");
     
     byte pkeybuffer[PKEYSIZE];
@@ -623,7 +643,7 @@ int   ota_get_newkey(char * url, char * version, char * name, signature_t* signa
     byte hash[HASHSIZE];
     Sha384 sha;
     
-    length=ota_get_file_ex(url,version,name,0,pkeybuffer,PKEYSIZE);
+    length=ota_get_file_ex(repo,version,file,0,pkeybuffer,PKEYSIZE);
     wc_InitSha384(&sha);
     wc_Sha384Update(&sha, pkeybuffer, length);
     wc_Sha384Final(&sha, hash);
@@ -634,16 +654,16 @@ int   ota_get_newkey(char * url, char * version, char * name, signature_t* signa
         return wc_ecc_import_x963_ex(pkeybuffer,length,&pubecckey,ECC_SECP384R1);
     } else return -1;
 }
-int   ota_get_hash(char * url, char * version, char * name, signature_t* signature) {
+int   ota_get_hash(char * repo, char * version, char * file, signature_t* signature) {
     printf("--- ota_get_hash\n");
     int ret;
     byte buffer[HASHSIZE+4+SIGNSIZE];
-    char * signame=malloc(strlen(name));
-    strcpy(signame,name);
+    char * signame=malloc(strlen(file));
+    strcpy(signame,file);
     strcat(signame,".sig");
     memset(signature->hash,0,HASHSIZE);
     memset(signature->sign,0,SIGNSIZE);
-    ret=ota_get_file_ex(url,version,signame,0,buffer,HASHSIZE+4+SIGNSIZE);
+    ret=ota_get_file_ex(repo,version,signame,0,buffer,HASHSIZE+4+SIGNSIZE);
     free(signame);
     if (ret<0) return ret;
     memcpy(signature->hash,buffer,HASHSIZE);
@@ -699,9 +719,10 @@ void  ota_activate_sector(int sector) {
     abyte[0]=0xf0; if (!spiflash_write(sector+SECTORSIZE-1, abyte, 1)) printf("error writing flash\n");
 }
 
-void  ota_write_status0() {
-    printf("--- ota_write_status0\n");
-
+void  ota_write_status(char * version) {
+    printf("--- ota_write_status\n");
+    
+    sysparam_set_string("ota_version", version);
 }
 
 int   ota_boot(void) {

@@ -4,7 +4,7 @@
 #ifndef OTAVERSION
  #error You must set OTAVERSION=x.y.z of the ota code to match github version tag x.y.z
 #endif
-#define OTAURL   "HomeACcessoryKid/ota"
+#define OTAREPO   "HomeACcessoryKid/ota"
 #define MAINFILE "otamain.bin"
 #define BOOTFILE "otaboot.bin"
 #define CERTFILE "certs.sector"
@@ -15,7 +15,7 @@
 #define HIGHERCERTSECTOR 0xF6000
 #define LOWERCERTSECTOR 0xF5000
 #define BOOT0SECTOR 0x02000
-#define BOOT1SECTOR 0x82000
+#define BOOT1SECTOR 0x8D000 //must match the program1.ld value!!
 #define HOST "github.com"
 #define HTTPS_PORT 443
 #define LOCAL_PORT_START 49152
@@ -55,21 +55,21 @@ int   ota_get_pubkey(int sector); //get the ecdsa key from the active_cert_secto
 
 int   ota_verify_pubkey(void); //check if public and private key are a pair
 
-void  ota_sign(int start_sector, int num_sectors, signature_t* signature, char* name);
+void  ota_sign(int start_sector, int num_sectors, signature_t* signature, char* file);
 
 int   ota_compare(char* newv, char* oldv);
 
-int   ota_load_user_app(char * url, char * version, char * name);
+int   ota_load_user_app(char * *repo, char * *version, char * *file);
 
 void  ota_set_validate(int onoff);
 
-char* ota_get_version(char * url);
+char* ota_get_version(char * repo);
 
-int   ota_get_file(char * url, char * version, char * name, int sector); //number of bytes 
+int   ota_get_file(char * repo, char * version, char * file, int sector); //number of bytes 
 
-int   ota_get_newkey(char * url, char * version, char * name, signature_t* signature);
+int   ota_get_newkey(char * repo, char * version, char * file, signature_t* signature);
 
-int   ota_get_hash(char * url, char * version, char * name, signature_t* signature);
+int   ota_get_hash(char * repo, char * version, char * file, signature_t* signature);
 
 int   ota_verify_hash(int address, signature_t* signature);
     
@@ -79,7 +79,7 @@ void  ota_swap_cert_sector();
 
 void  ota_activate_sector(int sector);
 
-void  ota_write_status0();
+void  ota_write_status(char * version);
 
 int   ota_boot(void);
 
